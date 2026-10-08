@@ -78,6 +78,12 @@ const SINK_RECOVER: float = 110.0
 ## An actor that is ALREADY in the water (the flooded decks of
 ## MAP.252-254) is not affected.
 static var water_y: float = INF
+## Set by the trigger verifier (layer a): no actor fires. Its checks put
+## the player down next to a record and count what that record does; a
+## robot's stray round into the same prop (DOS ObjHit takes anyone's shot)
+## is a second damage stage the record's own chain never caused. The
+## robots still move and drive their paths. Never set in play.
+static var hold_fire: bool = false
 ## The level's heightmap, for the lakes that are painted into the
 ## terrain material instead of being marked (MAP.270).
 static var terrain_wld: WldTerrain.WLD = null
@@ -697,7 +703,12 @@ func _move_data(delta: float, sense: Dictionary) -> void:
 	var moving: bool = true
 	if st == 7:
 		# Walkers only travel while a looping (walk) block plays.
-		moving = (_brain.anim_flags & EnemyAI.ANIM_LOOP) != 0 \
+		# A walker with no looping block (the spidbot) walks through its
+		# one-shot firing blocks: DOS moves every walker by the frames'
+		# root motion, whatever the block flags (issue #4).
+		moving = ((_brain.anim_flags & EnemyAI.ANIM_LOOP) != 0
+			or (_brain.oneshot_walker and _brain.firing_pose()
+				and (_brain.anim_flags & EnemyAI.ANIM_DONE) == 0)) \
 			and not _brain.freeze_anim
 	var near: float = float(_t.get("near", 100))
 	if (st == 13 and speed < 0.0) or st == 9:
@@ -822,8 +833,13 @@ func _drop_ahead(fwd: Vector3) -> bool:
 		return false
 	var ahead: Vector3 = global_position + fwd * 120.0
 	var max_drop: float = MAX_DROP_TERMINATOR if (_type_id >= 33 and _type_id <= 38) else MAX_DROP_OTHER
+	# Measured below the FEET, not the origin: the spidbot's origin sits
+	# 127 u above its feet, so a ray reaching only 120 u under the origin
+	# never found the floor it stands on and every step read as a cliff
+	# (FS MAP.010 spiders walking in place, issue #4).
+	var feet: float = minf(_foot_offset, 0.0)
 	var hit := _cast(ahead + Vector3(0.0, 60.0, 0.0),
-		ahead + Vector3(0.0, -max_drop - 60.0, 0.0))
+		ahead + Vector3(0.0, feet - max_drop - 60.0, 0.0))
 	return not hit.has("position")
 
 ## True when the ground 120 units ahead rises more steeply than the
@@ -1042,7 +1058,7 @@ func _aim_segment(seg: Dictionary, delta: float, see: bool) -> void:
 func _try_fire(node: Node3D, fp: Array, delta: float, _td: Dictionary) -> void:
 	var cd: float = float(_cds.get(node, 0.0)) - delta
 	_cds[node] = cd
-	if cd > 0.0 or _player == null:
+	if cd > 0.0 or _player == null or hold_fire:
 		return
 	var aim: Vector3 = _player.global_position + Vector3(0.0, 60.0, 0.0)
 	var muzzle: Vector3 = node.global_transform * Vector3(float(fp[0]), -float(fp[1]), -float(fp[2]))

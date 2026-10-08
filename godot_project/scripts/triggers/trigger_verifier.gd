@@ -56,6 +56,7 @@ const Rules := preload("res://scripts/triggers/rules_skynet.gd")
 const PlayerDriver := preload("res://scripts/triggers/player_driver.gd")
 const BSAReader := preload("res://scripts/loaders/bsa_reader.gd")
 const ZoneLayers := preload("res://scripts/mission/zone_layers.gd")
+const Enemy := preload("res://scripts/enemy.gd")
 
 const XFAIL_PATH: String = "res://tests/rules/skynet.xfail"
 
@@ -579,6 +580,11 @@ func _open_map(level, intercept: bool) -> Dictionary:
 	# also what puts a real gun in his hands: a vehicle weapon fires a
 	# PROJECTILE, and projectile._is_target stops a bolt only on the
 	# `enemy` group, so a car on a vehicle map was never hit at all.
+	# Record by record the robots also hold their fire: a round of theirs
+	# into the record being checked is a damage stage its own chain never
+	# dealt (260@134ea took a spidbot's once the spiders walked, issue #4).
+	# The mission runner (intercept false) plays with them shooting.
+	Enemy.hold_fire = intercept
 	if intercept:
 		_was_vehicle = int(main.player.vehicle)
 		main.player.set_vehicle(0)

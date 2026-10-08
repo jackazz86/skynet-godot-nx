@@ -70,12 +70,52 @@ var frame_changed: bool = false
 # --- outputs of the last tick ---
 var sounds: Array[int] = []             # frame-event / script sounds
 
+## A walker whose script has no looping block (the spidbot): its walk
+## cycle is two one-shot firing blocks, so it travels while they play
+## and the script waits for each to end (see `_script_waits_on_block`).
+var oneshot_walker: bool = false
+
 func _init(id: int) -> void:
 	type_id = id
 	if id >= 0 and id < Data.TYPES.size():
 		t = Data.TYPES[id]
 		state = int(t.get("st", 0))
 		pc = int(t.get("script", 0))
+		oneshot_walker = state == 7 and pc != 0 and not _script_loops(pc)
+
+## True when any block the script can start carries the loop flag.
+static func _script_loops(start: int) -> bool:
+	var seen: Dictionary = {}
+	var todo: Array[int] = [start]
+	while not todo.is_empty():
+		var p: int = todo.pop_back()
+		if seen.has(p) or not Data.OPS.has(p):
+			continue
+		seen[p] = true
+		var op: Array = Data.OPS[p]
+		match String(op[0]):
+			"end":
+				continue
+			"goto":
+				todo.append(int(op[1]))
+				continue
+			"if":
+				todo.append(int(op[4]))
+			"anim":
+				var rec: Array = Data.ANIMS.get(int(op[1]), [])
+				if not rec.is_empty() and (int(rec[1]) & ANIM_LOOP) != 0:
+					return true
+		todo.append(p + 16)
+	return false
+
+## DOS runs the script only when the animation stepper reports a flagged
+## frame (bit 0 of the block's runtime flags, 0x13c614 in v1.01 — the
+## last frame of a block, or DONE on a finished one-shot). The port
+## evaluates at SCRIPT_HZ instead, which restarted a one-shot block every
+## evaluation; for a walker made only of one-shot blocks that pinned the
+## legs on their first two frames — "walks in place" (issue #4).
+func _script_waits_on_block() -> bool:
+	return oneshot_walker and not anim_frames.is_empty() 		and (anim_flags & ANIM_ONESHOT) != 0 and (anim_flags & ANIM_DONE) == 0
 
 ## True when the type carries an AIS script.
 func has_script() -> bool:
@@ -232,7 +272,7 @@ func tick(delta: float, sense: Dictionary) -> void:
 	frame_changed = false
 	_step_anim(delta)
 	_script_acc += delta
-	if pc != 0 and (_script_acc >= 1.0 / SCRIPT_HZ or delta <= 0.0):
+	if pc != 0 and (_script_acc >= 1.0 / SCRIPT_HZ or delta <= 0.0) 			and not _script_waits_on_block():
 		var dt: float = _script_acc
 		_script_acc = 0.0
 		_run_script(dt, sense)
