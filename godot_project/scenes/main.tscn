@@ -6,7 +6,7 @@
 [ext_resource type="Script" path="res://scripts/touch_controls.gd" id="4_touch"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
-radius = 16.0
+radius = 11.0
 height = 76.0
 
 [node name="Main" type="Node3D"]

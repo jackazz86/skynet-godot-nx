@@ -327,15 +327,18 @@ const VEH_EYE: Array = [75.0, 92.0, 110.0]
 ## margin — 52-60 u across, and the submarine of mission 5 is narrower
 ## than that: --solve found the cabin, the mess hall and the torpedo-room
 ## corridor impassable at an effective radius of 26 and passable at 20
-## (2026-09-11). 16 + 4 is that 20: a 40 u body, the proportions of a man
-## whose eyes are at 75, and still well inside the smallest doorway.
+## (2026-09-11). DOS's own number is smaller still: three spheres of
+## radius 15 (on-foot table 0x38df9, copied by 0x1228ae), tested against
+## a mover's real, rotated polygons on both sides (0x13ac3e/0x14e111).
+## 11 + 4 is that 15 — the body that fits past Future Shock's hotel door
+## (MAP.011 DORHTEL2, which DOS opens only 45°).
 ## Height 76, not 88: DOS ignores ceilings for the player, and the port's
 ## 88 u body (92 with the margin) could not pass the 88 u lintel in front
 ## of the submarine's engine-room bulkhead (floormap ceil, 2026-09-11).
 ## The top, 80 with the margin, still sits above the eyes at 75.
 ## Same as the Player capsule in main.tscn, so leaving a vehicle does not
 ## change the body.
-const VEH_CAPSULE: Array = [[16.0, 76.0], [55.0, 110.0], [110.0, 220.0]]
+const VEH_CAPSULE: Array = [[11.0, 76.0], [55.0, 110.0], [110.0, 220.0]]
 ## Jeep: DOS mission 2/6 driving. The DOS handler (0x134eec, data from
 ## ds:0x23700, disassembled 2026-09-11) in u/s and u/s²: the throttle
 ## pulls 1148 divided by the gear, max(1, v / 21.45), up to 683.6 — the
