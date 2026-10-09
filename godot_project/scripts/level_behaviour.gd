@@ -327,6 +327,10 @@ static func mover_animation(p: Dictionary, euler: Vector3, base: Basis) -> Anima
 ## resource (path + instance, so a reconverted mesh is asked again).
 static var _door_like_memo: Dictionary = {}
 
+## Another game's data came in (SkynetPaths.switch_game).
+static func reset_game() -> void:
+	_door_like_memo.clear()
+
 static func is_door_like(mesh: Mesh) -> bool:
 	if mesh == null:
 		return false

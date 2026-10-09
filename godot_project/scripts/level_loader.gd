@@ -1406,6 +1406,10 @@ static func _limit_one(n: Node, xf: Transform3D, radius: float) -> void:
 const SPRITE_ANIM_FPS: float = 12.0
 static var _anim_cache: Dictionary = {}      # sprite index → SpriteFrames or null
 
+## Another game's data came in (SkynetPaths.switch_game): sprite indices mean other records.
+static func reset_game() -> void:
+	_anim_cache.clear()
+
 ## The frames of a multi-frame sprite record as SpriteFrames ("default",
 ## looping), or null for a single-frame one. The frames are converted once
 ## into the asset cache (Explosion.bank_frames — a single-frame record is

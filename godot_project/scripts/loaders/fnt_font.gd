@@ -96,6 +96,10 @@ static func build(bytes: PackedByteArray, scale: int = 1) -> FontFile:
 		if up < 0x41 or up > 0x5A:
 			continue
 		var low: int = up + 0x20
+		# Most fonts DO carry lower case (FONT0000-0004/6/8-10, checked
+		# 2026-10-09); only an empty slot borrows its capital.
+		if widths[low - FIRST_CODEPOINT] > 0:
+			continue
 		font.set_glyph_texture_idx(0, size2, low, 0)
 		font.set_glyph_uv_rect(0, size2, low, font.get_glyph_uv_rect(0, size2, up))
 		font.set_glyph_size(0, size2, low, font.get_glyph_size(0, size2, up))

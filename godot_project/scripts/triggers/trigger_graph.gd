@@ -267,6 +267,11 @@ static func build(map, map_num: int, source_hash: int, game: String,
 static var _stage_tpl: Dictionary = {}
 static var _stage_tpl_read: bool = false
 
+## Another game's data came in (SkynetPaths.switch_game): its TRANSFRM.PRS.
+static func reset_game() -> void:
+	_stage_tpl.clear()
+	_stage_tpl_read = false
+
 static func stage_templates() -> Dictionary:
 	if _stage_tpl_read:
 		return _stage_tpl

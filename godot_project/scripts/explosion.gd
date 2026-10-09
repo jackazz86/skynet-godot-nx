@@ -49,6 +49,10 @@ static var _pool: Array = []
 ## cache under converted/fx/).
 static var _frames_by_key: Dictionary = {}
 
+## Another game's data came in (SkynetPaths.switch_game): bank records differ.
+static func reset_game() -> void:
+	_frames_by_key.clear()
+
 var _light: OmniLight3D = null
 
 ## Every frame of TEXTURE.<bank> record `rec` as textures, palette index 0

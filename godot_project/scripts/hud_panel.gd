@@ -88,7 +88,7 @@ func setup(hires: bool) -> void:
 	_bar = _img("PANELBAR.IMG", false)
 	_compass_tex = _img("COMPASS.IMG", false)
 	_rad_frames = Assets.cfa_frames("RADCOUNT.CFA", hires)
-	_font_bytes = SkynetPaths.read_bytes(SkynetPaths.gamedata_path("FONT0004.FNT"))
+	_font_bytes = SkynetPaths.read_bytes(SkynetPaths.front_path("FONT0004.FNT"))
 	_font = null
 	_font_scale = 0
 	queue_redraw()

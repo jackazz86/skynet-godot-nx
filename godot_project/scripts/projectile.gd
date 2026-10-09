@@ -32,6 +32,10 @@ const ZoneLayers := preload("res://scripts/mission/zone_layers.gd")
 
 ## .3D name → ArrayMesh, or false when the load failed (never retried).
 static var _mesh_cache: Dictionary = {}
+
+## Another game's data came in (SkynetPaths.switch_game): .3D names differ.
+static func reset_game() -> void:
+	_mesh_cache.clear()
 ## The soft round sprite of the halos (soft_dot), built once.
 static var _dot: Texture2D = null
 ## Shared halo quads (by size), halo/exhaust materials (by colour) and

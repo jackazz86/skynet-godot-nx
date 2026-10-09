@@ -10,6 +10,10 @@ const BSAReader := preload("res://scripts/loaders/bsa_reader.gd")
 
 static var _cache: Dictionary = {}
 
+## Another game's data came in (SkynetPaths.switch_game): its .PRS files.
+static func reset_game() -> void:
+	_cache.clear()
+
 static func table(name: String) -> Dictionary:
 	if _cache.has(name):
 		return _cache[name]

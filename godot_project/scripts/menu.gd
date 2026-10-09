@@ -137,6 +137,10 @@ var _save_slot_buttons: Array[Button] = []   # SAVE.IMG slot hotspots (in game)
 var _screen_save: Control = null
 var _saved_art: Array = [null, null]         # SAVED.IMG / SAVED2.IMG
 var _bar_art: bool = false                   # the bar strip has its art
+var _menu_pal: PackedColorArray = PackedColorArray()   # MENU.COL
+var _popupfs_raw: PackedByteArray = PackedByteArray()  # POPUPFS1.IMG
+var _fs_start_now: bool = false        # FS picked in-process: on to MAP.010
+static var _choose_fs_done: bool = false   # `--choose-fs` pressed once
 
 ## In-game mode: pause_menu.gd hosts these screens over the running
 ## level, the way DOS does on Esc (a DOSBox shot, 2026-09-11) -
@@ -199,12 +203,28 @@ func _ready() -> void:
 		var picked: Array = await setup.finished
 		if String(picked[0]).is_empty():
 			return                        # the player quit
+	# Back at the menu after Future Shock ran in this process (a campaign
+	# ended, the player quit to the menu): DOS's menu is SkyNET's again.
+	if SkynetPaths.fs_start_pending:
+		SkynetPaths.fs_start_pending = false
+		_fs_start_now = true
+	elif SkynetPaths.game == "shock" and not SkynetPaths.home_dir.is_empty():
+		SkynetPaths.switch_game(SkynetPaths.home_dir)
 	_scan_maps()
 	if SkynetPaths.selected_map == "" and not _maps.is_empty():
 		SkynetPaths.selected_map = _first_campaign_map()
 	# The window is the Settings autoload's, applied at start-up.
 	_build()
-	_maybe_import()
+	if not _fs_start_now and not SkynetPaths.fs_start_requested():
+		_maybe_import()
+		return
+	# Future Shock picked from SkyNET's NEW GAME (the relaunch passes
+	# --fs-start): DOS goes straight on to mission 1's briefing, never
+	# through a Future Shock title or menu. (BEGIN.VID would play first;
+	# the port has no video player.)
+	await _maybe_import()
+	if is_inside_tree():
+		_on_map_chosen(_first_campaign_map())
 
 ## First start (or `--import` on the command line): convert the game
 ## data into the asset cache behind a progress overlay. `--import`
@@ -258,6 +278,9 @@ func _maybe_import() -> void:
 		_show_screen(target)
 		if String(cli["screen"]) == "quit":
 			_confirm_quit()
+		elif String(cli["screen"]) == "popupfs":
+			_show_screen(_screen_newgame)
+			_show_popupfs()
 		return
 	if cli.has("join"):
 		_join_name = LineEdit.new()
@@ -265,6 +288,15 @@ func _maybe_import() -> void:
 		_join_addr = LineEdit.new()
 		_join_addr.text = String(cli["join"])
 		_on_join_typed.call_deferred()
+		return
+	# `--choose-fs`: press NEW GAME → FUTURE SHOCK once (test hook for the
+	# in-process switch; the switched menu does not press it again).
+	if "--choose-fs" in args and SkynetPaths.game == "skynet" and not _choose_fs_done:
+		_choose_fs_done = true
+		_on_other_game.call_deferred()
+		return
+	if "--choose-fs" in args and SkynetPaths.game == "skynet" and _choose_fs_done:
+		_on_map_chosen.call_deferred(_first_campaign_map())   # back: NEW GAME
 		return
 	if cli.has("map"):
 		SkynetPaths.selected_map = String(cli["map"]).strip_edges().to_upper()
@@ -421,22 +453,22 @@ static func _suffix(n: String) -> int:
 func _load_images() -> Dictionary:
 	var out: Dictionary = {}
 	var imgs := BSAReader.new()
-	if not imgs.open(SkynetPaths.gamedata_path("MDMDIMGS.BSA"), SkynetPaths.variant):
+	# DOS plays Future Shock inside SkyNET's menus: the art is always
+	# SkyNET's (its MDMDIMGS.BSA), FS's own archive only when SkyNET's
+	# folder is unknown. FS's START.IMG title is never shown.
+	var arc: Array = SkynetPaths.front_archive("MDMDIMGS.BSA")
+	if not imgs.open(String(arc[0]), int(arc[1])):
 		push_error("[menu] cannot open MDMDIMGS.BSA")
 		return out
-	# SkyNET title screen (SKYNTRMP.IMG) — unlike FutureShock's START.IMG
-	# it carries no baked menu bar, so MAIN1.IMG is overlaid separately.
-	# Future Shock: START.IMG with its loose START.COL; its menu palette
-	# is LOGOMENU.COL beside the game data (no MENU.COL in the archive).
-	if SkynetPaths.game == "shock":
-		var title_pal := Palette.parse(SkynetPaths.first_col_bytes(["START.COL", "LOGOMENU.COL", "SHOCK.COL"]))
-		out["TITLE"] = ImgFile.parse(imgs.read("START.IMG"), title_pal)
-	else:
-		var title_pal := Palette.parse(imgs.read("SKYNTRMP.COL"))
-		out["TITLE"] = ImgFile.parse(imgs.read("SKYNTRMP.IMG"), title_pal)
-	var menu_pal := Palette.parse(SkynetPaths.first_col_bytes(["MENU.COL", "START.COL", "SHOCK.COL"]))
-	# Future Shock's START.IMG has the menu bar baked in (checked 2026-09-06:
-	# OPTIONS/LOAD render right with START.COL, wrong with LOGOMENU.COL).
+	# SkyNET title screen (SKYNTRMP.IMG); MAIN1.IMG is overlaid separately.
+	var title_raw: PackedByteArray = imgs.read("SKYNTRMP.IMG")
+	if not title_raw.is_empty():
+		out["TITLE"] = ImgFile.parse(title_raw, Palette.parse(imgs.read("SKYNTRMP.COL")))
+	var menu_col: PackedByteArray = imgs.read("MENU.COL")
+	if menu_col.is_empty():
+		menu_col = SkynetPaths.first_col_bytes(["MENU.COL", "START.COL", "SHOCK.COL"])
+	var menu_pal := Palette.parse(menu_col)
+	_menu_pal = menu_pal
 	if in_game:
 		# The in-game bar has RETURN where MAIN1.IMG has NEW GAME; SAVE.IMG
 		# is LOAD.IMG's twin, SAVED/SAVED2.IMG say how the save went.
@@ -444,8 +476,14 @@ func _load_images() -> Dictionary:
 		out["SAVE"] = ImgFile.parse(imgs.read("SAVE.IMG"), menu_pal)
 		out["SAVED"] = ImgFile.parse(imgs.read("SAVED.IMG"), menu_pal)
 		out["SAVED2"] = ImgFile.parse(imgs.read("SAVED2.IMG"), menu_pal)
-	elif SkynetPaths.game != "shock":
-		out["BAR"] = ImgFile.parse(imgs.read("MAIN1.IMG"), menu_pal)
+	else:
+		var main1: PackedByteArray = imgs.read("MAIN1.IMG")
+		if not main1.is_empty():
+			out["BAR"] = ImgFile.parse(main1, menu_pal)
+	# The "Future Shock data missing" box (FUN_0011e6f9).
+	var popup: PackedByteArray = imgs.read("POPUPFS1.IMG")
+	if not popup.is_empty():
+		out["POPUPFS"] = popup
 	out["OPTIONS"] = ImgFile.parse(imgs.read("OPTIONS.IMG"), menu_pal)
 	out["LOAD"] = ImgFile.parse(imgs.read("LOAD.IMG"), menu_pal)
 	out["CONTROLS"] = ImgFile.parse(imgs.read("CONTROLS.IMG"), menu_pal)
@@ -462,7 +500,8 @@ func _load_images() -> Dictionary:
 
 func _build() -> void:
 	var art := _load_images()
-	var fnt_bytes := SkynetPaths.read_bytes(SkynetPaths.gamedata_path("FONT0003.FNT"))
+	_popupfs_raw = art.get("POPUPFS", PackedByteArray())
+	var fnt_bytes := SkynetPaths.read_bytes(SkynetPaths.front_path("FONT0003.FNT"))
 	if not fnt_bytes.is_empty():
 		_net_font = FntFont.build(fnt_bytes, 2)
 
@@ -582,20 +621,20 @@ func _build_main_screen() -> Control:
 		# other four sit in the same places.
 		var label: String = "RETURN" if in_game and _bar_buttons.is_empty() else String(it[0])
 		b.pressed.connect(func() -> void: _on_bar_item(label))
-		if in_game and not _bar_art:
+		if not _bar_art:
 			b.text = label                # no bar art: its captions
 			_dos_font(b, 16)
 		root.add_child(b)
 		_bar_buttons.append(b)
+	if not _bar_art:
+		var strip := ColorRect.new()
+		strip.color = Color8(42, 56, 56)
+		strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		strip.anchor_right = 1.0
+		strip.anchor_bottom = BAR_H / IMG_H
+		root.add_child(strip)
+		root.move_child(strip, 0)
 	if in_game:
-		if not _bar_art:
-			var strip := ColorRect.new()
-			strip.color = Color8(42, 56, 56)
-			strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			strip.anchor_right = 1.0
-			strip.anchor_bottom = BAR_H / IMG_H
-			root.add_child(strip)
-			root.move_child(strip, 0)
 		return root
 	var hint := Label.new()
 	hint.text = "Future Shock / SkyNET  —  Godot Port"
@@ -698,15 +737,54 @@ func _status_line(text: String) -> void:
 
 func _on_other_game() -> void:
 	var dir: String = SkynetPaths.other_game_dir()
+	if dir.is_empty() and SkynetPaths.game == "skynet":
+		_show_popupfs()                   # DOS: no MDMDMAPS.BSA → the error box
+		return
 	if dir.is_empty():
 		_status_line("%s data not found — expected %s" % [
 			"Future Shock" if SkynetPaths.game == "skynet" else "SkyNET",
 			"<game>/shock/GAMEDATA" if SkynetPaths.game == "skynet" else "<game>/gamedata"])
 		return
+	# DOS plays Future Shock inside the running SkyNET: switch the data in
+	# this process and come back through a fresh menu, which goes straight
+	# on to mission 1's briefing (and back to SkyNET from Future Shock).
+	# `--fs-relaunch` keeps the old way, a new process, as a fallback.
+	var args: PackedStringArray = OS.get_cmdline_args()
+	args.append_array(OS.get_cmdline_user_args())
+	if not args.has("--fs-relaunch"):
+		var to_shock: bool = SkynetPaths.game == "skynet"
+		if SkynetPaths.switch_game(dir):
+			SkynetPaths.fs_start_pending = to_shock
+			get_tree().change_scene_to_file.call_deferred("res://scenes/menu.tscn")
+		else:
+			_status_line("could not start on %s" % dir)
+		return
 	if SkynetPaths.relaunch_with_gamedata(dir):
 		get_tree().quit()
 	else:
 		_status_line("could not start on %s" % dir)
+
+## POPUPFS1.IMG: the box DOS shows over NEW GAME when Future Shock's
+## MDMDMAPS.BSA is not where SkyNET looks (FUN_0011e6f9). Its one OK
+## button (screen rect 0x8c,0x79-0xad,0x88; the image sits at its own
+## header x,y) closes it and leaves the player in the menu.
+## (POPUPFS2.CFA, 35x18 x2, is that button's pressed frames.)
+func _show_popupfs() -> void:
+	Audio.play_sfx("BUTTON1.RAW")
+	var tex: Variant = ImgFile.parse(_popupfs_raw, _menu_pal)
+	if tex == null:
+		_status_line("Future Shock data not found — expected <game>/shock/GAMEDATA")
+		return
+	var ox: float = float(_popupfs_raw.decode_u16(0))
+	var oy: float = float(_popupfs_raw.decode_u16(2))
+	var iw: float = float(_popupfs_raw.decode_u16(4))
+	var ih: float = float(_popupfs_raw.decode_u16(6))
+	var pair := _img_panel(tex, iw, ih, NG_PANEL_SCALE)
+	var root: Control = pair[0]
+	var ok := Rect2(0x8c - ox, 0x79 - oy, 0xad - 0x8c + 1, 0x88 - 0x79 + 1)
+	(pair[1] as Control).add_child(_img_hotspot(ok, NG_PANEL_SCALE,
+		func() -> void: root.queue_free()))
+	add_child(root)
 
 ## A dimmed screen with a centred fixed-size panel hosting DOS .IMG art.
 ## Returns [root, panel]; absolute-positioned hotspots go on `panel`.

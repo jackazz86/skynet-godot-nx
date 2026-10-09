@@ -14,6 +14,11 @@ const ITEM_KEYS: Array = ["jeeps", "hks", "bullets", "energy", "armor", "health"
 static var _levels: Array = []
 static var _loaded: bool = false
 
+## Another game's data came in (SkynetPaths.switch_game).
+static func reset_game() -> void:
+	_levels.clear()
+	_loaded = false
+
 ## [{name, map:"MAP.605", maxplayers, timesetting, items:{key:int}, replenish:bool}, …]
 static func levels() -> Array:
 	if _loaded:

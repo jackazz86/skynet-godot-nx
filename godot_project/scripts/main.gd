@@ -194,6 +194,9 @@ var _briefing_scene: TextureRect = null    # BRIEF*.IMG centre picture
 var _briefing_mode: String = "BRIEFING"
 var _mission_tactical: Array = []          # [TA] dossier names
 var _briefing_backdrop: Texture2D = null   # TACTBAK.IMG
+static var _then_menu_done: bool = false   # `--then-menu` used once
+var _brief_font: FontFile = null           # FONT0000 — briefing text
+var _briefing_picture: int = -1            # the [NNN] tag of [EN]/[BR] (FS mode)
 var _tactical: Control = null
 var _stats_box: Control = null
 var _briefing_tabs: Dictionary = {}        # name -> the tab Button
@@ -658,10 +661,16 @@ func _cli_after_level() -> void:
 		await RenderingServer.frame_post_draw
 		await RenderingServer.frame_post_draw
 		var img: Image = get_viewport().get_texture().get_image()
-		var path := String(_cli["screenshot"])
+		var path := _shot_path()
 		var err := img.save_png(path)
 		print("[skynet] screenshot %s (%s) at pos=%s yaw=%.1f pitch=%.1f" % [path, error_string(err),
 			player.global_position, rad_to_deg(player.rotation.y), rad_to_deg(player.get("_pitch"))])
+		# `--then-menu`: after the first shot, back to the menu once (test
+		# hook for Future Shock in-process and the way back to SkyNET).
+		if _cli.has("then-menu") and not _then_menu_done:
+			_then_menu_done = true
+			_return_to_menu()
+			return
 		if _cli.has("quit-after-shot"):
 			get_tree().quit()
 	elif _cli.has("perf"):
@@ -823,9 +832,20 @@ func _load_current() -> void:
 		await RenderingServer.frame_post_draw
 		var bimg: Image = get_viewport().get_texture().get_image()
 		print("[skynet] screenshot %s (%s) — mission screen"
-			% [_cli["screenshot"], error_string(bimg.save_png(String(_cli["screenshot"])))])
-		if _cli.has("quit-after-shot"):
+			% [_shot_path(), error_string(bimg.save_png(_shot_path()))])
+		if _cli.has("quit-after-shot") and not _cli.has("auto-begin"):
 			get_tree().quit()
+	# `--auto-begin`: press BEGIN on the briefing (test hook: the level then
+	# loads as from the button, and --screenshot captures it).
+	if _briefing_overlay != null and _cli.has("auto-begin"):
+		_briefing_begin()
+
+## --screenshot's path; after `--then-menu` went back once, <name>_2.png.
+func _shot_path() -> String:
+	var path := String(_cli["screenshot"])
+	if _then_menu_done:
+		path = path.get_basename() + "_2." + path.get_extension()
+	return path
 
 ## Load and show the level geometry for `name` — called directly for
 ## non-mission maps, or from the briefing's BEGIN button once the player
@@ -4637,15 +4657,23 @@ func _maybe_show_briefing(map_name: String) -> bool:
 	if not _campaign_maps.has(map_name):
 		return false                        # sub-map / not a mission start
 	var sfx: int = _mission_of(map_name)
-	var bsa := BSAReader.new()
-	if not bsa.open(SkynetPaths.gamedata_path("MDMDBRIF.BSA"),
-			SkynetPaths.variant):
-		return false
-	var txt := bsa.read("%03d.TXT" % sfx)
-	bsa.close()
+	# Future Shock played from SkyNET: DOS reads the briefing from SkyNET's
+	# own MDMDBRIF.BSA (010.TXT for mission 1), FS's copy as a fallback.
+	var txt := PackedByteArray()
+	var arcs: Array = [SkynetPaths.front_archive("MDMDBRIF.BSA")]
+	if SkynetPaths.game == "shock":
+		arcs.append([SkynetPaths.gamedata_path("MDMDBRIF.BSA"), SkynetPaths.variant])
+	for arc in arcs:
+		var bsa := BSAReader.new()
+		if bsa.open(String(arc[0]), int(arc[1])):
+			txt = bsa.read("%03d.TXT" % sfx)
+			bsa.close()
+		if not txt.is_empty():
+			break
 	if txt.is_empty():
 		return false
 	var brief: Dictionary = Briefing.parse(txt)
+	_briefing_picture = int(brief.get("picture", -1))
 	_mission_tactical = brief.get("tactical", [])
 	var obj: String = brief.get("objectives", "")
 	var lines: Array = brief.get("lines", [])
@@ -4665,11 +4693,20 @@ func _maybe_show_briefing(map_name: String) -> bool:
 func _load_brief_textures(map_num: int, lines: Array) -> Dictionary:
 	var out: Dictionary = {}
 	var bsa := BSAReader.new()
-	if not bsa.open(SkynetPaths.gamedata_path("MDMDIMGS.BSA"),
-			SkynetPaths.variant):
+	var arc: Array = SkynetPaths.front_archive("MDMDIMGS.BSA")
+	if not bsa.open(String(arc[0]), int(arc[1])):
 		return out
-	var pal_ui := Palette.parse(SkynetPaths.ui_palette_bytes())
+	var ui_col: PackedByteArray = bsa.read("BRIEF.COL")
+	var pal_ui := Palette.parse(ui_col if not ui_col.is_empty()
+		else SkynetPaths.ui_palette_bytes())
 	var pal_scene := Palette.parse(bsa.read("BRIEF2.COL"))
+	var pic_name: String = "BRIEF%03d.IMG" % map_num
+	if SkynetPaths.game == "shock" and _briefing_picture >= 0:
+		# FS mode (DOS FUN_0012c300): the picture is BRIEF<tag>.IMG from
+		# the [NNN] tag opening [EN]/[BR] — BRIEF009 for mission 1 — drawn
+		# with BRIEF.COL, not the per-mission palette.
+		pic_name = "BRIEF%03d.IMG" % _briefing_picture
+		pal_scene = pal_ui
 	if pal_scene.is_empty():
 		pal_scene = pal_ui
 	var ui: Dictionary = {}
@@ -4682,7 +4719,7 @@ func _load_brief_textures(map_num: int, lines: Array) -> Dictionary:
 	out["_ui"] = ui
 	if not pal_scene.is_empty():
 		out["_backdrop"] = ImgFile.parse(bsa.read("TACTBAK.IMG"), pal_scene)
-		var intro := bsa.read("BRIEF%03d.IMG" % map_num)
+		var intro := bsa.read(pic_name)
 		if not intro.is_empty():
 			out["_intro"] = ImgFile.parse(intro, pal_scene)
 	if not pal_ui.is_empty():
@@ -4716,7 +4753,7 @@ func _show_briefing(map_num: int, objectives: String, lines: Array) -> void:
 	if not objectives.is_empty():
 		@warning_ignore("integer_division")
 		_briefing_pages.append({"img": scene_default, "text": objectives,
-			"title": "MISSION %d  OBJECTIVES" % ((map_num - 200) / 10)})
+			"title": "MISSION %d  OBJECTIVES" % ((map_num - (0 if SkynetPaths.game == "shock" else 200)) / 10)})
 	for ln in lines:
 		var img: Texture2D = tex.get(int(ln["speaker"]), scene_default)
 		_briefing_pages.append({"img": img if img != null else backdrop,
@@ -4783,8 +4820,13 @@ func _show_briefing(map_num: int, objectives: String, lines: Array) -> void:
 	_briefing_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_briefing_text.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_briefing_text.add_theme_color_override("font_color", Color(0.83, 0.93, 0.84))
-	if _hud_font != null:
-		_briefing_text.add_theme_font_override("font", _hud_font)
+	# DOS prints the briefing in FONT0000 (5x7, mixed case), not the HUD's
+	# FONT0003, whose stylised H and K read as M ("TIMI", "MOTEL").
+	if _brief_font == null:
+		_brief_font = _load_fnt("FONT0000.FNT", 3)
+	var bf: FontFile = _brief_font if _brief_font != null else _hud_font
+	if bf != null:
+		_briefing_text.add_theme_font_override("font", bf)
 	_briefing_scroll.add_child(_briefing_text)
 
 	# Transparent hotspots over the MENU000 up/down arrows — they scroll
@@ -4944,6 +4986,13 @@ func _briefing_layout() -> void:
 	if _briefing_text == null or not is_instance_valid(_briefing_text):
 		return
 	var vh: float = get_viewport().get_visible_rect().size.y
+	if _brief_font != null:
+		# 7-row glyphs on DOS's 8-row line, at the 320x200 screen's scale.
+		_briefing_text.add_theme_font_size_override("font_size",
+			maxi(int(round(vh * 7.0 / 200.0)), 7))
+		_briefing_text.add_theme_constant_override("line_spacing",
+			int(round(vh / 200.0)))
+		return
 	_briefing_text.add_theme_font_size_override("font_size",
 		int(clampf(vh / 26.0, 14.0, 40.0)))
 
@@ -6155,7 +6204,7 @@ func _hud_box_label() -> Label:
 
 ## Load a GAMEDATA FONT00NN.FNT and build a tintable FontFile, or null.
 func _load_fnt(filename: String, factor: int) -> FontFile:
-	var bytes := SkynetPaths.read_bytes(SkynetPaths.gamedata_path(filename))
+	var bytes := SkynetPaths.read_bytes(SkynetPaths.front_path(filename))
 	if bytes.is_empty():
 		push_warning("HUD font missing: %s" % filename)
 		return null

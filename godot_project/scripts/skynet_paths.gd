@@ -290,6 +290,119 @@ func other_game_dir() -> String:
 			return c
 	return ""
 
+## SkyNET's own data folder: this one in SkyNET; in Future Shock the one
+## the relaunch named (--skynet-data=) or other_game_dir(). "" when unknown.
+## DOS GAME.EXE plays Future Shock from inside SkyNET: only the maps come
+## from FS's folder, the menus and the briefing are SkyNET's.
+var _skynet_dir_memo: Variant = null
+
+func skynet_dir() -> String:
+	if game == "skynet":
+		return gamedata_dir
+	if _skynet_dir_memo == null:
+		var d: String = ""
+		var args: PackedStringArray = OS.get_cmdline_args()
+		args.append_array(OS.get_cmdline_user_args())
+		for a in args:
+			if a.begins_with("--skynet-data="):
+				var c: String = a.substr(14).strip_edges().trim_suffix("/").trim_suffix(BACKSLASH)
+				if game_of(c) == "skynet":
+					d = c
+		if d.is_empty():
+			d = other_game_dir()
+		_skynet_dir_memo = d
+	return String(_skynet_dir_memo)
+
+## [path, archive key] of a front-end archive (MDMDIMGS.BSA, MDMDBRIF.BSA):
+## SkyNET's own when its folder is known, else this game's copy.
+func front_archive(nm: String) -> Array:
+	var sky: String = skynet_dir()
+	if game == "shock" and not sky.is_empty():
+		var p: String = find_file(sky, nm)
+		if not p.is_empty():
+			return [p, BsaVariant.SKYNET_FULL]
+	return [gamedata_path(nm), variant]
+
+## A loose front-end file (FONT00NN.FNT) the same way: SkyNET's own copy
+## when its folder is known — FS's fonts map K/H to other glyphs and
+## have no lower case — else this game's.
+func front_path(nm: String) -> String:
+	var sky: String = skynet_dir()
+	if game == "shock" and not sky.is_empty():
+		var p: String = find_file(sky, nm)
+		if not p.is_empty():
+			return p
+	return gamedata_path(nm)
+
+## True when Future Shock was started from SkyNET's NEW GAME menu: the
+## menu skips itself and opens mission 1's briefing (DOS FUN_0011e6f9).
+## Set by switch_game (in-process) or `--fs-start` (the relaunch fallback);
+## consumed by the menu.
+var fs_start_pending: bool = false
+
+func fs_start_requested() -> bool:
+	if fs_start_pending:
+		return true
+	var args: PackedStringArray = OS.get_cmdline_args()
+	args.append_array(OS.get_cmdline_user_args())
+	return game == "shock" and args.has("--fs-start")
+
+## SkyNET's folder while Future Shock runs in this process (switch_game);
+## the menu switches back to it. "" when no switch happened.
+var home_dir: String = ""
+
+## Switch this process to the other game's data, the way DOS GAME.EXE plays
+## Future Shock from inside SkyNET — no new process. The remembered data
+## folder (user://gamedata.cfg) is not touched. Everything fixed by the data
+## root is re-pointed or emptied:
+##   - game / variant / map_archive / gamedata_dir, the palette memo, the
+##     disk-name listing (here);
+##   - the asset cache root and its session caches (Assets.relocate:
+##     converted/ ↔ shock/converted, textures, meshes, CFA memos);
+##   - Audio's archive + sound cache (re-opened on the next sound, keyed by
+##     gamedata_dir) and its parsed songs;
+##   - the static record-keyed caches: LevelLoader sprite frames, Explosion
+##     bank frames, Projectile meshes, TriggerGraph damage stages, PRS
+##     tables, NetLevels, the grenade sprite, the door-like mesh memo.
+## Rules (rules_skynet / rules_shock) and the campaign tables are chosen by
+## `game` each time they are asked, so they follow without a reset.
+func switch_game(dir: String) -> bool:
+	_disk_names.clear()
+	if not _has_data(dir):
+		return false
+	var from: String = gamedata_dir
+	var to_game: String = game_of(dir)
+	if to_game == game and dir == gamedata_dir:
+		return true
+	gamedata_dir = dir
+	game_root = dir
+	_adopt_game(dir)
+	_col_memo.clear()
+	if to_game == "shock":
+		home_dir = from
+		_skynet_dir_memo = from
+	else:
+		home_dir = ""
+		_skynet_dir_memo = null
+	var assets := get_node_or_null("/root/Assets")
+	if assets != null and assets.has_method("relocate"):
+		assets.relocate()
+	var audio := get_node_or_null("/root/Audio")
+	if audio != null:
+		var songs = audio.get("_songs")
+		if songs is Dictionary:
+			(songs as Dictionary).clear()
+	for p in ["res://scripts/level_loader.gd", "res://scripts/level_behaviour.gd",
+			"res://scripts/explosion.gd", "res://scripts/projectile.gd",
+			"res://scripts/triggers/trigger_graph.gd", "res://scripts/loaders/prs_file.gd",
+			"res://scripts/net/net_levels.gd", "res://scripts/grenade.gd"]:
+		var s: Script = load(p)
+		if s != null:
+			s.call("reset_game")
+	selected_map = ""
+	print("[paths] switched to %s (%s) in-process" % [gamedata_dir, game])
+	return true
+
 ## Start the game again on another data directory — the menu's FUTURE
 ## SHOCK entry (and, from Future Shock, the way back). The game, the
 ## archive keys and a dozen static caches are fixed at startup and the
@@ -306,6 +419,9 @@ func relaunch_with_gamedata(dir: String) -> bool:
 	if not OS.has_feature("template"):
 		args.append_array(["--path", ProjectSettings.globalize_path("res://")])
 	args.append_array(["--", "--gamedata=" + dir])
+	if game == "skynet" and game_of(dir) == "shock":
+		# Straight to FS mission 1 on SkyNET's menu art, as DOS does.
+		args.append_array(["--skynet-data=" + gamedata_dir, "--fs-start"])
 	if OS.has_feature("template") and OS.has_feature("pc"):
 		# The engine starts the new instance once this one has shut down,
 		# so the ports, the audio device and the user:// files are free.

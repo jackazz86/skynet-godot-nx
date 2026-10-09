@@ -33,7 +33,31 @@ static func parse(bytes: PackedByteArray) -> Dictionary:
 		"mission_texts": _sections(text, "M", 5),
 		"hints": _numbered(text, "G", 9),
 		"tactical": _words(text, "[TA]"),
+		"picture": _picture(text),
 	}
+
+## The [NNN] tag that opens the [EN] (else [BR]) section — the briefing
+## picture number DOS shows in Future Shock mode (BRIEF<NNN>.IMG; 009
+## in 010.TXT). -1 when there is none.
+static func _picture(text: String) -> int:
+	for header in ["[EN]", "[BR]"]:
+		var inside: bool = false
+		for raw in text.split(NEWLINE):
+			var line: String = raw.strip_edges()
+			if not inside:
+				inside = line == header
+				continue
+			if line.begins_with("%%%%"):
+				break
+			if line.is_empty():
+				continue
+			if line.begins_with("[") and line.ends_with("]"):
+				var tag: String = line.substr(1, line.length() - 2)
+				if tag.is_valid_int():
+					return tag.to_int()
+				continue
+			break                               # text before any tag
+	return -1
 
 ## The [M1]..[M5] / [G1]..[G9] sections, in order, "" where absent.
 ##

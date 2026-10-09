@@ -35,6 +35,11 @@ const SPRITE_PIXEL_SIZE: float = 2.0
 
 static var _sprite_tex: Texture2D = null
 static var _sprite_tried: bool = false
+
+## Another game's data came in (SkynetPaths.switch_game): its sprite bank.
+static func reset_game() -> void:
+	_sprite_tex = null
+	_sprite_tried = false
 ## The fallback body when the sprite is missing, shared.
 static var _body_mesh: SphereMesh = null
 static var _body_mat: StandardMaterial3D = null
