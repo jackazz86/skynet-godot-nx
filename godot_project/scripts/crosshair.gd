@@ -15,6 +15,9 @@
 ## MDMDHRES.BSA has it, the 640x480 version (120x120 against 71x59: the
 ## 320x200 one is squashed for that mode's tall pixels) scaled from 480
 ## lines, which is sharp instead of a blocky blow-up (playtest, 2026-09-11).
+## DOS does the same: in /g mode FUN_00125892 loads it through the
+## MDMDHRES.BSA handle (0x31037) when 0x43314 == 1. Scaled by a whole
+## number only (_reticle_scale), so its 1-pixel lines stay even.
 
 extends Control
 
@@ -77,13 +80,31 @@ func _vehicle_reticle() -> Texture2D:
 	_reticle = ImageTexture.create_from_image(img)
 	return _reticle
 
+## How many window pixels one pixel of the reticle art takes: a WHOLE
+## number. DOS blits CROSHAIR.IMG 1:1 onto its 640x480 (or 320x200)
+## screen (FUN_00126016 → FUN_0013af00 at the view centre 0x3e230/34,
+## no scaling). The port scaled it by window lines / 480 — 2.25 at 1080
+## — and with nearest sampling that drew the 1-pixel lines 2 or 3 pixels
+## thick by turns and stair-stepped the arcs, the "low-res" look
+## (playtest 2026-10-09). The nearest whole step keeps every line the
+## same width; the reticle comes out within half a step of DOS's share
+## of the screen (240 px at 1080 instead of 270).
+func _reticle_scale(window_lines: float) -> float:
+	return maxf(1.0, roundf(window_lines / _reticle_unit))
+
 func _draw() -> void:
 	var c: Vector2 = _aim_point()
 	if _veh > 0:
 		var tex := _vehicle_reticle()
 		if tex != null:
-			var sz: Vector2 = tex.get_size() * (size.y / _reticle_unit)
-			draw_texture_rect(tex, Rect2(c - sz * 0.5, sz), false, GREEN)
+			# Sized and placed in WINDOW pixels: this control lives on the
+			# 1280x720 canvas the stretch mode scales up (1.5x at 1080).
+			var xf: Transform2D = get_viewport().get_final_transform() \
+				* get_global_transform_with_canvas()
+			var k: float = maxf(xf.get_scale().y, 0.001)
+			var sz: Vector2 = tex.get_size() * (_reticle_scale(size.y * k) / k)
+			var tl: Vector2 = xf.affine_inverse() * (xf * (c - sz * 0.5)).round()
+			draw_texture_rect(tex, Rect2(tl, sz), false, GREEN)
 			return
 	var col := Color(0.55, 1.0, 0.65, 0.85)
 	var shadow := Color(0.0, 0.0, 0.0, 0.6)
