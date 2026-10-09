@@ -1134,6 +1134,9 @@ func _level_ready_tail(level: LevelLoader.Level, nm: String) -> void:
 	# The map's border boxes and the hint at their edge (MAP.260).
 	if is_instance_valid(player):
 		player.border_boxes = _world_border_boxes(level)
+		player.hk_ceiling = _hk_ceiling(level)
+		if player.vehicle == PlayerScript.VEH_HK and not is_inf(player.hk_ceiling):
+			print("[skynet] HK ceiling: eye y <= %.0f (marker 3)" % player.hk_ceiling)
 		if not player.border_hint.is_connected(_on_border_hint):
 			player.border_hint.connect(_on_border_hint)
 	_apply_pending_player()
@@ -1172,6 +1175,17 @@ func _level_enemies(level: LevelLoader.Level) -> Array:
 			continue
 		out.append(e)
 	return out
+
+## The gunship's ceiling (DOS FUN_001224fe -> [0x390df]): the y of the
+## map's first type-3 marker as stored (entity Y + 0x10), zone-local ->
+## world; INF when the map has none. See fly_camera.hk_ceiling.
+static func _hk_ceiling(level: LevelLoader.Level) -> float:
+	if level == null or not level.markers.has(3):
+		return INF
+	var list: Array = level.markers[3]
+	if list.is_empty():
+		return INF
+	return (list[0] as Vector3).y + level.origin.y
 
 ## zone-local → world: the level's border boxes are built from the marker
 ## records, so they are in the zone's own x/z; the player tests them
@@ -5431,6 +5445,7 @@ func _clear_level() -> void:
 	if is_instance_valid(player):
 		player.water_level = INF
 		player.border_boxes = []
+		player.hk_ceiling = INF
 	_current_level = null
 
 func _input(event: InputEvent) -> void:

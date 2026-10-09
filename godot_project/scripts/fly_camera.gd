@@ -1415,8 +1415,60 @@ func _hover(delta: float, fwd_in: float, str_in: float) -> void:
 				# harder it sinks back into its band.
 				velocity.y = minf(velocity.y, -minf(
 					(clearance - HK_MAX_ALTITUDE) * 2.0, HK_CLIMB))
+	var cap_y: float = hk_ceiling - _eye
+	if global_position.y >= cap_y and velocity.y > 0.0:
+		velocity.y = 0.0               # the stick cannot climb past it
+	var was: Vector3 = global_position
 	move_and_slide()
+	_hk_ceiling_clamp(was)
 	_update_engine()
+
+## The map's own ceiling for the gunship, a world Y the EYE may not rise
+## above; INF = none. DOS GAME.EXE v1.01: the level start (FUN_00122300)
+## calls FUN_001224fe, which reads the first marker of type 3 and keeps
+## its stored y (entity Y + 0x10) in [0x390df], -1 000 000 when the map
+## has none. The HK's move routine (FUN_00131be0, the mode-8 slot of the
+## table at 0x38f53) clamps the eye to it right after the move, and its
+## collision step only ever lifts the craft onto what it hit (to the
+## object's top - 80, its sphere) while that stays under the ceiling;
+## otherwise the move is undone and the speed comes back at -1/4. No push,
+## slide or step ever carries the gunship over it (FS MAP.060: a hillside
+## lifted the port's HK over the barrier, playtest 2026-10).
+var hk_ceiling: float = INF
+
+## After the move: the eye never ends above the ceiling. Whatever lifted
+## the hull there - the floor push, a slide up a hillside, the
+## depenetration out of a slope - is taken back; when the hull would then
+## sit inside what it hit, the move is undone the DOS way (old position,
+## speed -1/4), so a hill at the ceiling is a wall, not a ramp.
+func _hk_ceiling_clamp(was: Vector3) -> void:
+	var cap_y: float = hk_ceiling - _eye
+	if is_inf(hk_ceiling) or global_position.y <= cap_y:
+		return
+	if velocity.y > 0.0:
+		velocity.y = 0.0
+	# A start above it (the entry rise) comes down to it at once, as in DOS.
+	global_position.y = cap_y
+	if _hk_hull_blocked():
+		global_position = Vector3(was.x, minf(was.y, cap_y), was.z)
+		velocity = Vector3(-velocity.x * 0.25, minf(velocity.y, 0.0), -velocity.z * 0.25)
+
+var _hk_shape_q: PhysicsShapeQueryParameters3D = null
+
+## Does the hull, where it stands now, overlap the world?
+func _hk_hull_blocked() -> bool:
+	var cs: CollisionShape3D = get_node_or_null("CollisionShape3D")
+	var space := get_world_3d().direct_space_state
+	if cs == null or cs.shape == null or space == null:
+		return false
+	if _hk_shape_q == null:
+		_hk_shape_q = PhysicsShapeQueryParameters3D.new()
+		_hk_shape_q.collide_with_areas = false
+		_hk_shape_q.exclude = [get_rid()]
+	_hk_shape_q.shape = cs.shape
+	_hk_shape_q.transform = global_transform * cs.transform
+	_hk_shape_q.collision_mask = ZoneLayers.world_mask()
+	return not space.intersect_shape(_hk_shape_q, 1).is_empty()
 
 ## True when something is directly overhead: the gunship is inside a
 ## tunnel, a shaft or a hangar, and the altitude cap does not apply
