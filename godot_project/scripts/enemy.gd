@@ -849,21 +849,37 @@ func _too_steep(fwd: Vector3) -> bool:
 	if space == null:
 		return false
 	var term: bool = _type_id >= 33 and _type_id <= 38
-	# A ledge right ahead (40 u) may rise at most one step.
+	# Measured from the FEET, and every ray starts just above the highest
+	# rise the walker accepts — never higher. The rays used to start 400 u
+	# over the origin: indoors they hit the ceiling or the floor above
+	# first, read it as a wall-high step, and every robot of an interior
+	# (SkyNET 213/233, FS 012/142) stood on its marker. The step is the
+	# one _snap_to_ground climbs. DOS's own ground-ahead test was not found
+	# near the walker handler (0x13774c); these limits are the port's.
+	var feet_y: float = global_position.y + minf(_foot_offset, 0.0)
+	var step: float = STEP_TERMINATOR if term else STEP_OTHER
+	# A ledge right ahead (40 u) may rise at most one step: anything
+	# crossing feet + step on the way there is higher than that.
 	var near: Vector3 = global_position + fwd * 40.0
-	var hn := _cast(near + Vector3(0.0, 400.0, 0.0), near + Vector3(0.0, -400.0, 0.0))
-	if hn.has("position"):
-		var step_up: float = (hn["position"] as Vector3).y - global_position.y
-		if step_up > (STEP_TERMINATOR if term else STEP_OTHER):
-			return true
+	var top: float = feet_y + step + 1.0
+	if _cast(Vector3(global_position.x, top, global_position.z),
+			Vector3(near.x, top, near.z)).has("position"):
+		return true
+	var hn := _cast(Vector3(near.x, top, near.z), Vector3(near.x, feet_y - 400.0, near.z))
+	if hn.has("position") and (hn["position"] as Vector3).y - feet_y > step:
+		return true
+	# The slope over 120 u: the down-ray starts at the steepest rise the
+	# family takes, so a roof above that height is never sampled.
+	var limit: float = SLOPE_TERMINATOR if term else SLOPE_OTHER
+	var max_rise: float = 120.0 * tan(limit)
 	var ahead: Vector3 = global_position + fwd * 120.0
-	var hit := _cast(ahead + Vector3(0.0, 400.0, 0.0), ahead + Vector3(0.0, -400.0, 0.0))
+	var hit := _cast(Vector3(ahead.x, feet_y + max_rise + 1.0, ahead.z),
+		Vector3(ahead.x, feet_y - 400.0, ahead.z))
 	if not hit.has("position"):
 		return false
-	var rise: float = (hit["position"] as Vector3).y - global_position.y
+	var rise: float = (hit["position"] as Vector3).y - feet_y
 	if rise <= 0.0:
 		return false
-	var limit: float = SLOPE_TERMINATOR if term else SLOPE_OTHER
 	return atan2(rise, 120.0) > limit
 
 ## Solid geometry ahead along `step`, plus `extra` units (bodies only,
