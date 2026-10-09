@@ -484,6 +484,20 @@ func press_use() -> void:
 ## are the only ways they run at all.
 func prox_tick(eye: Vector3) -> void:
 	_ensure_index()
+	# DOS runs the 0xEF handler (0x1386a0) for EVERY gate in the frame the
+	# key goes down, whatever the crosshair is on — the doorway gate as
+	# well. The port takes a doorway gate through activate_teleport, which
+	# only hears a press the crosshair target did not take; a gate under the
+	# crosshair took it and the doorway beside it never opened. MAP.050's
+	# sewer (Future Shock, 2026-10-09): the tunnel SEWRENTR is a walk-on pad
+	# and, once stood on, an armed 0xEF gate itself, its grate is what the
+	# player looks at, and the grate's doorway gate (@0ad14 → 0xF0 MAP.051)
+	# 7 units behind it never heard the key. A press nothing took has
+	# already been here (main._on_use_pressed → _exit_taken).
+	if _use_edge and not _exit_taken and net_role != ROLE_CLIENT:
+		var exit_gate: Node = gate_to_exit(eye)
+		if exit_gate != null:
+			use_exit_through(exit_gate)
 	for t in _prox:
 		if t.is_wall_button():
 			continue
