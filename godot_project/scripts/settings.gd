@@ -28,12 +28,21 @@ const DIFF_DMG_TO_ENEMY: Array = [1.5, 1.25, 1.0]
 const DIFF_DMG_TO_PLAYER: Array = [0.75, 1.0, 1.0]
 const DIFF_ARMOR_REGEN: Array  = [0.025, 0.015, 0.0125]
 
-## RENDER DETAIL drives the draw distance and where the haze starts.
-## DOS (VA 0x61800, 3 x 20 bytes): far clip 1408 / 2176 / 2432 and haze
-## start 720 / 1744 / 2000 world units. Those are tiny next to what this
-## port draws, so the port keeps HIGH as the tuned look and scales the
-## fog distances by the DOS ratios for MED and LOW.
-const DETAIL_FOG_SCALE: Array = [1408.0 / 2432.0, 2176.0 / 2432.0, 1.0]
+## RENDER DETAIL drives the draw distance and the depth cue (GAME.EXE
+## v1.01). FUN_00143300 / FUN_00143314 index the 3 x 20-byte table at
+## VA 0x61a00 by the setting: +0 << 8 is the far clip DAT_0006e224 (every
+## terrain vertex, polygon and sprite deeper than it in camera z is
+## dropped: FUN_00153dc8 outcode 0x20, FUN_0014ef20), +8 goes to
+## FUN_0014a63c as the depth-cue start (from there to the far clip the
+## shade falls linearly through the 64 rows of HAZE.000 to row 0 = palette
+## index 31, black), +0xc picks the span renderers, +0x10 = 1 drops a
+## pass on LOW. +4 (768 / 1792 / 4400) is read by nothing in v1.01.
+##   LOW {1176, 768, 720, 4, 1}  MED {1944, 1792, 1744, 4, 2}
+##   HIGH {3992, 4400, 1744, 8, 2}
+## (The 1408 / 2176 / 2432 and 720 / 1744 / 2000 written here before were
+## another table, read at the v1.00 address 0x61800.)
+const DETAIL_FAR: Array = [1176.0, 1944.0, 3992.0]
+const DETAIL_CUE_START: Array = [720.0, 1744.0, 1744.0]
 
 signal difficulty_changed(level: int)
 signal detail_changed(level: int)
@@ -395,6 +404,14 @@ func dmg_to_player() -> float:
 func armor_regen() -> float:
 	return float(DIFF_ARMOR_REGEN[difficulty])
 
-## Fog / draw-distance multiplier for the current RENDER DETAIL.
+## The DOS far clip for the current RENDER DETAIL, world units.
+func draw_far() -> float:
+	return float(DETAIL_FAR[detail])
+
+## Where the DOS depth cue starts darkening, world units.
+func cue_start() -> float:
+	return float(DETAIL_CUE_START[detail])
+
+## Draw distance relative to RENDER DETAIL HIGH (LevelLoader.FOG_FAR).
 func fog_scale() -> float:
-	return float(DETAIL_FOG_SCALE[detail])
+	return draw_far() / float(DETAIL_FAR[HIGH])

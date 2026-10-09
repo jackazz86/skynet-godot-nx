@@ -1471,11 +1471,11 @@ func _player_body_radius() -> float:
 ## DOS player: eye 75 units above the feet (DAT_00038ce5 = 0x4b,
 ## skynet_gh.c:25016); marker/start positions are EYE positions.
 const EYE_HEIGHT: float = 75.0
-## Outdoor depth haze (world units) — DOS fades distant terrain out. It
-## starts at FOG_BEGIN pushed out by the stretch, and is solid at
-## LevelLoader.FOG_FAR (_apply_fog_distances).
-const FOG_BEGIN: float = 3500.0
-const FOG_BEGIN_STRETCH: float = 1.9
+## Outdoor depth cue: DOS darkens everything linearly from the RENDER
+## DETAIL cue start (1 744 units at HIGH) to its far clip (3 992), through
+## the 64 rows of HAZE.000 down to row 0 — every colour there is palette
+## index HAZE_INDEX (Settings.DETAIL_FAR, _apply_fog_distances).
+const HAZE_INDEX: int = 31
 ## Props up to this AABB extent collide as boxes. 0 = off: an AABB box
 ## turns open props (tables, counters, arches) into solid blocks — the
 ## MAP.218 spawn ended up inside one, was relocated outside the room and
@@ -1693,6 +1693,7 @@ func _set_sky_fill(level: LevelLoader.Level, map_name: String = "") -> void:
 	var fill := Color(0.0, 0.0, 0.0)
 	var night: bool = level.is_outdoor and _is_night_map(map_name)
 	_clear_moon()
+	_clear_stars()
 	if night:
 		# No dome on night maps: the flat palette-0x11 sky and the moon.
 		if level.sky != null and is_instance_valid(level.sky):
@@ -1701,8 +1702,9 @@ func _set_sky_fill(level: LevelLoader.Level, map_name: String = "") -> void:
 		if pal.size() > NIGHT_SKY_INDEX:
 			fill = pal[NIGHT_SKY_INDEX]
 			fill.a = 1.0
+		_make_stars()
 		_make_moon()
-		print("[skynet] %s: night sky (fill %s) with the moon" % [map_name, fill])
+		print("[skynet] %s: night sky (fill %s) with %d stars and the moon" % [map_name, fill, _star_dirs.size()])
 	elif level.is_outdoor and level.sky != null and level.sky.mesh != null:
 		var am: Mesh = level.sky.mesh
 		var mat: Material = am.surface_get_material(0) if am.get_surface_count() > 0 else null
@@ -1733,7 +1735,7 @@ func _set_sky_fill(level: LevelLoader.Level, map_name: String = "") -> void:
 	env.fog_enabled = level.is_outdoor
 	if level.is_outdoor:
 		env.fog_mode = Environment.FOG_MODE_DEPTH
-		env.fog_light_color = fill * 0.35
+		env.fog_light_color = _haze_colour()
 		env.fog_light_energy = 1.0
 		env.fog_sun_scatter = 0.0
 		env.fog_density = 1.0
@@ -1741,6 +1743,7 @@ func _set_sky_fill(level: LevelLoader.Level, map_name: String = "") -> void:
 		env.fog_depth_curve = 1.0
 		env.fog_aerial_perspective = 0.0
 		env.fog_sky_affect = 0.0
+		_cut_terrain_at_far(level)
 	_apply_render_env(level, env, fill)
 
 ## --- Rendering environment and sky ------------------------------------
@@ -1777,6 +1780,32 @@ const MOON_SCREEN_FRAC: float = 0.17
 const MOON_AIM_DEG: float = 4.5
 const MOON_HITS_TO_FALL: int = 24
 const MOON_MESSAGE: String = "OW!"
+
+## The night stars (GAME.EXE v1.01). FUN_0013a000, once at start-up, fills
+## 256 entries at DAT_0005ad04 (12 bytes: a DOS x, y, z direction) and a
+## colour each at DAT_0005b904. Per star it draws from the game RNG
+## FUN_00146b8b (x = ((x & 0xffff) * 0x31d) % 0x1003): colour =
+## clamp((r & 0xf) + 0x55, 0x50, 0x5f); a = r & 0x7ff; b = r & 0x7ff, all
+## three again until a < 0x400 and b >= 0x400; then FUN_0013a295 turns the
+## two 11-bit angles into (sin a cos b, sin a sin b, cos a) * 0x100000 —
+## sin a >= 0 and sin b <= 0 keep every star in the upper (DOS -y) half
+## of the sky. FUN_0013a0a2, every frame on the same night-only gate as the
+## moon (map record +0x2344 == 1 and DAT_00030a54 bit 0 clear, the bit
+## FUN_00134067 sets for the dusk-dome maps), turns each one by the camera
+## matrix 0x6cf00 alone — no translation, so they sit at infinity — and,
+## when in front of the near plane and inside the view, plots ONE pixel
+## of its colour (FUN_0001699a), before the moon and the world. DOS seeds
+## the RNG from the BIOS tick count (FUN_00146b76), so the sky differs per
+## launch; the port starts it at a fixed seed so every run matches.
+const STAR_COUNT: int = 256
+const STAR_SEED: int = 1
+## Past the moon (drawn over them) and inside the far plane.
+const STAR_DIST: float = MOON_DIST * 1.2
+## One DOS pixel of the 640×480 frame the game runs in (GAME.EXE /g).
+const STAR_FRAME_ROWS: float = 480.0
+static var _star_dirs: PackedVector3Array = PackedVector3Array()
+static var _star_cols: PackedInt32Array = PackedInt32Array()
+var _stars: MeshInstance3D = null
 
 var _moon: MeshInstance3D = null
 var _moon_hits: int = 0
@@ -1856,6 +1885,82 @@ func _update_moon() -> void:
 		return
 	_moon.global_position = camera.global_position + _moon_dir() * MOON_DIST
 
+## FUN_0013a000: the star table, built once (Godot direction, palette index).
+static func _build_star_table() -> void:
+	if _star_dirs.size() == STAR_COUNT:
+		return
+	_star_dirs = PackedVector3Array()
+	_star_cols = PackedInt32Array()
+	var r: int = STAR_SEED
+	for _i in STAR_COUNT:
+		var col: int = 0
+		var a: int = 0
+		var b: int = 0
+		while true:
+			r = ((r & 0xffff) * 0x31d) % 0x1003
+			col = clampi((r & 0xf) + 0x55, 0x50, 0x5f)
+			r = ((r & 0xffff) * 0x31d) % 0x1003
+			a = r & 0x7ff
+			r = ((r & 0xffff) * 0x31d) % 0x1003
+			b = r & 0x7ff
+			if b >= 0x400 and a < 0x400:
+				break
+		var ta: float = float(a) * TAU / 2048.0
+		var tb: float = float(b) * TAU / 2048.0
+		# DOS (x, y, z) -> Godot (x, -y, -z).
+		var d := Vector3(sin(ta) * cos(tb), -sin(ta) * sin(tb), -cos(ta))
+		_star_dirs.append(d)
+		_star_cols.append(col)
+
+func _clear_stars() -> void:
+	if _stars != null and is_instance_valid(_stars):
+		_stars.queue_free()
+	_stars = null
+
+## FUN_0013a0a2: one palette pixel per star, fixed to the sky directions.
+func _make_stars() -> void:
+	_clear_stars()
+	_build_star_table()
+	var pal: PackedColorArray = Assets.palette()
+	var verts := PackedVector3Array()
+	var cols := PackedColorArray()
+	for i in _star_dirs.size():
+		verts.append(_star_dirs[i] * STAR_DIST)
+		var c := Color(1, 1, 1)
+		if pal.size() > _star_cols[i]:
+			c = pal[_star_cols[i]]
+		c.a = 1.0
+		cols.append(c)
+	var arrays: Array = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_COLOR] = cols
+	var am := ArrayMesh.new()
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_POINTS, arrays)
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.vertex_color_use_as_albedo = true
+	mat.vertex_color_is_srgb = true
+	mat.use_point_size = true
+	mat.point_size = 1.0
+	mat.disable_fog = true
+	_stars = MeshInstance3D.new()
+	_stars.name = "Stars"
+	_stars.mesh = am
+	_stars.material_override = mat
+	_stars.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_stars)
+	_update_stars()
+
+func _update_stars() -> void:
+	if _stars == null or not is_instance_valid(_stars) or camera == null:
+		return
+	_stars.global_position = camera.global_position
+	var mat := _stars.material_override as StandardMaterial3D
+	var px: float = maxf(1.0, roundf(get_viewport().get_visible_rect().size.y / STAR_FRAME_ROWS))
+	if mat != null and mat.point_size != px:
+		mat.point_size = px
+
 ## Seconds the MISSION COMPLETE screen stays before the next mission.
 const AUTO_ADVANCE_SEC: float = 6.0
 ## Seconds FAILED.IMG stands alone before the RESTART MISSION box comes up
@@ -1893,6 +1998,7 @@ func _on_detail_changed(_level: int = 0) -> void:
 	var we: WorldEnvironment = get_node_or_null("WorldEnvironment")
 	if _current_level != null and _current_level.is_outdoor and we != null and we.environment != null:
 		_apply_fog_distances(we.environment)
+		_cut_terrain_at_far(_current_level)
 
 ## HI-RES ART: the gun in your hands swaps sets, and the HUD swaps with it
 ## — the DOS panel off, the modern bar on (see _build_hud).
@@ -1950,18 +2056,70 @@ func _apply_render_env(level: LevelLoader.Level, env: Environment, fill: Color) 
 		# Haze that reaches the horizon instead of swallowing the
 		# next hill: the sky colour, not a third of it, and pushed
 		# out with the far clip.
-		env.fog_light_color = fill.lerp(Color(0.16, 0.14, 0.16), 0.35)
+		env.fog_light_color = _haze_colour()
 		_apply_fog_distances(env)
 
-## Where the outdoor haze starts and where it is solid. The solid end IS
-## LevelLoader.FOG_FAR — the distance past which the loader stops drawing
-## geometry (visibility ranges) — so the two cannot drift apart: a haze
-## ending beyond it would show things popping out. RENDER DETAIL pulls both
-## fog distances in, never out (Settings.fog_scale, from the DOS far-clip
-## table 1408 / 2176 / 2432), so FOG_FAR stays a safe culling distance.
+## Where the depth cue starts and where it is black: the DOS RENDER DETAIL
+## table (Settings.DETAIL_FAR / DETAIL_CUE_START, VA 0x61a00) — HIGH, the
+## default, 1 744 → 3 992 units. The black end never passes
+## LevelLoader.FOG_FAR, the distance past which the loader stops drawing
+## geometry (visibility ranges), so nothing pops out of the dark.
+## DOS ramps linearly in camera depth; Godot's depth fog is a smoothstep
+## of the radial distance — the same ends, a softer middle.
 func _apply_fog_distances(env: Environment) -> void:
-	env.fog_depth_begin = FOG_BEGIN * FOG_BEGIN_STRETCH * Settings.fog_scale()
-	env.fog_depth_end = LevelLoader.FOG_FAR * Settings.fog_scale()
+	env.fog_depth_begin = Settings.cue_start()
+	env.fog_depth_end = minf(Settings.draw_far(), LevelLoader.FOG_FAR)
+
+## DOS draws no ground past its far clip (FUN_00153dc8 outcode 0x20): the
+## sky fill shows there. The port builds the ground further (LevelLoader.
+## TERRAIN_VIEW_MARGIN), so its materials cut it off per pixel at the same
+## distance — a distance fade run backwards (min > max fades OUT), dithered
+## so it stays in the opaque pass. The copies go onto the mesh itself, so
+## _shade_recursive's lit copies (made after this) carry the cut as well.
+const FAR_CUT_META := &"far_cut"
+func _cut_terrain_at_far(level: LevelLoader.Level) -> void:
+	if level == null or level.terrain == null or not is_instance_valid(level.terrain):
+		return
+	var far: float = minf(Settings.draw_far(), LevelLoader.FOG_FAR)
+	var cache: Dictionary = {}
+	var stack: Array = [level.terrain]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		stack.append_array(n.get_children())
+		if not (n is MeshInstance3D) or (n as MeshInstance3D).mesh == null:
+			continue
+		var mi := n as MeshInstance3D
+		for si in mi.mesh.get_surface_count():
+			var m: Material = mi.mesh.surface_get_material(si)
+			if m is BaseMaterial3D and not m.has_meta(FAR_CUT_META):
+				var key: int = m.get_instance_id()
+				if not cache.has(key):
+					var dup: BaseMaterial3D = (m as BaseMaterial3D).duplicate()
+					dup.set_meta(FAR_CUT_META, true)
+					cache[key] = dup
+				mi.mesh.surface_set_material(si, cache[key])
+				m = cache[key]
+			_far_cut(m, far)
+			var o: Material = mi.get_surface_override_material(si)
+			if o != null and (o.has_meta(LIT_COPY_META) or o.has_meta(FAR_CUT_META)):
+				_far_cut(o, far)
+
+static func _far_cut(m: Material, far: float) -> void:
+	if not (m is BaseMaterial3D):
+		return
+	var bm := m as BaseMaterial3D
+	bm.distance_fade_mode = BaseMaterial3D.DISTANCE_FADE_PIXEL_DITHER
+	bm.distance_fade_min_distance = far
+	bm.distance_fade_max_distance = far - 1.0
+
+## The colour HAZE.000 row 0 maps every pixel to (palette index 31).
+func _haze_colour() -> Color:
+	var pal: PackedColorArray = Assets.palette()
+	var c := Color(0.0, 0.0, 0.0)
+	if pal.size() > HAZE_INDEX:
+		c = pal[HAZE_INDEX]
+	c.a = 1.0
+	return c
 
 ## Pin the sky mesh to the camera position each frame (DOS FUN_00133bbb
 ## re-centres SKY_SKY.3D on the camera). Orientation stays fixed so the
@@ -2065,6 +2223,7 @@ func _process(delta: float) -> void:
 	if _current_level != null and _current_level.sky != null \
 			and is_instance_valid(_current_level.sky):
 		_current_level.sky.position = camera.global_position
+	_update_stars()
 	if _moon != null and is_instance_valid(_moon):
 		if _moon_fall_v > 0.0 and _moon.visible:
 			# FUN_00139a10: velocity feeds an accumulator that feeds the

@@ -975,15 +975,17 @@ func load_zone(map_name: String, origin: Vector3, baked_root: Node = null,
 ##
 ## How far that is: the camera's far plane is 200 000 units — more than
 ## the whole map, so it is not what bounds the view. What does is the
-## draw distance: at FOG_FAR the outdoor haze is solid (main.
-## _apply_fog_distances, the solid end at RENDER DETAIL HIGH; MED and LOW
-## pull it in), and limit_draw_distance stops drawing every mesh, sprite
-## and robot whose bounds lie wholly past FOG_FAR + 2 × DRAW_MARGIN. The
-## ground is held to the same line: every cell within that distance of
-## any point of a box is built — from anywhere the player can stand, and
-## at any height, since the distance is the 3-D one — and a cell further
-## out could only have been drawn as flat haze.
-const TERRAIN_VIEW_MARGIN: float = FOG_FAR + DRAW_MARGIN * 2.0
+## draw distance: at FOG_FAR the depth cue is solid black (main.
+## _apply_fog_distances; MED and LOW pull it in), and limit_draw_distance
+## stops drawing every mesh, sprite and robot whose bounds lie wholly past
+## FOG_FAR + 2 × DRAW_MARGIN. The ground is built further than that — to
+## the 29 200 units the haze used to end at before FOG_FAR became the DOS
+## far clip — and past FOG_FAR it can only draw black. Kept so that the
+## terrain cache keys (terrain_crop_tag) and baked scenes stay valid; it
+## could come down to FOG_FAR + 2 × DRAW_MARGIN (DOS itself transforms a
+## 32 × 32-vertex grid, the camera's cell −16..+15, FUN_00153dc8) with a
+## re-import.
+const TERRAIN_VIEW_MARGIN: float = 16000.0 * 1.8 + DRAW_MARGIN * 2.0
 ## Whatever the MAP places outside the boxes still gets ground under it,
 ## with this much around it (a robot's patrol, a path vehicle's route).
 const TERRAIN_ENTITY_PAD: float = 1024.0
@@ -1353,10 +1355,11 @@ static func _build_sprites(level: Level, _palette: PackedColorArray) -> void:
 		for b in keys:
 			print("[sprite] bank %d x%d" % [b, bank_hist[b]])
 
-## Where the outdoor haze is solid at RENDER DETAIL HIGH (16 000 x 1.8).
-## main.gd takes its fog end from here (_apply_fog_distances); MED and
-## LOW pull it in, never out.
-const FOG_FAR: float = 16000.0 * 1.8
+## The DOS far clip at RENDER DETAIL HIGH, the default (Settings.
+## DETAIL_FAR, table VA 0x61a00): 3 992 world units of camera depth, where
+## the depth cue reaches black. main.gd takes its fog end from here
+## (_apply_fog_distances); MED and LOW pull it in, never out.
+const FOG_FAR: float = 3992.0
 const DRAW_MARGIN: float = 200.0
 
 ## Stop drawing each piece of geometry under `root` once it is wholly past
