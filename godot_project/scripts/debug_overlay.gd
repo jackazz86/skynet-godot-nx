@@ -284,7 +284,10 @@ static func _describe(n: Dictionary) -> String:
 		if n.has("enemy") and int(n["enemy"]) >= 0:
 			who += " enemy %d" % int(n["enemy"])
 	else:
-		who = "sprite %s" % str(n.get("sprite", "?"))
+		# The graph keeps the packed texture index (bank << 7 | record),
+		# a float once it went through JSON: print it as bank/record.
+		var si: int = int(n.get("sprite", -1))
+		who = "sprite %d/%d" % [si >> 7, si & 0x7F] if si >= 0 else "sprite"
 	var modes: Array = _self_modes(n)
 	return "%s @%05x act %02X %s [%s]" % [who, int(n["id"]), int(n["act"]),
 		String((n.get("rule", {}) as Dictionary).get("kind", "?")),
