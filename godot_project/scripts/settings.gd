@@ -201,6 +201,9 @@ var mission_scenes: bool = true
 ## new runtime on the old one, so a stored value without this beside it is
 ## the old default and the build's own wins.
 var mission_scenes_chosen: bool = false
+## The port's TEST / DEBUG overlay (scripts/debug_overlay.gd; F12 or the
+## console's `debug on|off`). Not DOS; off unless asked for.
+var debug_overlay: bool = false
 ## The running game applies these at once (main.gd listens), not on the
 ## next map.
 signal hires_weapons_changed(on: bool)
@@ -253,6 +256,7 @@ func _ready() -> void:
 		mouse_v = clampi(int(cfg.get_value("controls", "mouse_v", MOUSE_DEFAULT)), 1, MOUSE_STEPS)
 		mouse_invert_y = bool(cfg.get_value("controls", "mouse_invert_y", false))
 		mission_scenes_chosen = bool(cfg.get_value("game", "mission_scenes_chosen", false))
+		debug_overlay = bool(cfg.get_value("game", "debug_overlay", false))
 		if mission_scenes_chosen:
 			mission_scenes = bool(cfg.get_value("game", "mission_scenes", true))
 	get_tree().root.size_changed.connect(apply_resolution)
@@ -275,6 +279,7 @@ func save() -> void:
 	cfg.set_value("video", "dynamic_lights", dynamic_lights)
 	cfg.set_value("game", "mission_scenes", mission_scenes)
 	cfg.set_value("game", "mission_scenes_chosen", mission_scenes_chosen)
+	cfg.set_value("game", "debug_overlay", debug_overlay)
 	cfg.set_value("controls", "mouse_h", mouse_h)
 	cfg.set_value("controls", "mouse_v", mouse_v)
 	cfg.set_value("controls", "mouse_invert_y", mouse_invert_y)

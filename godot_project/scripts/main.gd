@@ -231,6 +231,8 @@ func _ready() -> void:
 	_pause = PauseMenu.new()
 	_pause.game = self
 	add_child(_pause)
+	# The port's test / debug overlay (F12, `debug on|off`) — off by default.
+	_debug_overlay = load("res://scripts/debug_overlay.gd").attach(self)
 	if Net.active:
 		_dm = DmGame.new()
 		add_child(_dm)
@@ -2823,6 +2825,8 @@ var _objectives_total: int = 0        # every [M] entry of the script
 ## The mission whose MISSION COMPLETE banner has been shown (-1 none): a
 ## sub-map of a won mission entered afterwards must not win it again.
 var _mission_ended_key: int = -1
+## The port's test / debug overlay (scripts/debug_overlay.gd).
+var _debug_overlay: CanvasLayer = null
 
 ## Mission number a map belongs to (its start map): the sub-maps of
 ## mission 1 are 211..218, mission 5 starts on MAP.252 but scripts from
@@ -5563,7 +5567,8 @@ const HELP_TEXT := """[b]commands[/b]
   hint <1-9|text> [now] (panel message window) · hud dos|modern
   music [0-100|off|t200|title] · save [slot] · load [slot] · menu · quit
   where (position, view and what the level costs) · bake [all]
-  zone · zones [show|all|hide] (the mission scene's zones, when one is up)"""
+  zone · zones [show|all|hide] (the mission scene's zones, when one is up)
+  debug [on|off] (test overlay: perf, objectives, pointer — also F12)"""
 
 const CHEATS_TEXT := """[b]DOS cheat codes[/b] (CHEAT.PRS, typed after Alt+\\ in the original)
   superuzi · arnold (all weapons) · slugs (ammo) · surgery (health+armor)
@@ -5993,6 +5998,15 @@ func run_command(line: String) -> String:
 			Settings.hires_weapons = args[0].to_lower() == "modern"
 			_on_hires_changed()
 			return "hud %s" % args[0].to_lower()
+		"debug":
+			# The port's test / debug overlay (scripts/debug_overlay.gd).
+			if _debug_overlay == null:
+				return "no debug overlay"
+			var want: bool = not _debug_overlay.visible
+			if not args.is_empty():
+				want = args[0].to_lower() in ["on", "1", "true"]
+			_debug_overlay.set_on(want)
+			return "debug overlay %s" % ("on" if want else "off")
 		"objectives", "obj":
 			var todo: Array = []
 			for i in _mission_texts.size():
