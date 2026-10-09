@@ -80,7 +80,11 @@ const PathsLib := preload("res://scripts/skynet_paths.gd")
 ## provenance sidecar next to every scene.
 ## 14 (2026-09-23): the outdoor ground is built only over the border boxes
 ## and what can be seen from them (LevelLoader.terrain_crop).
-const BAKE_VERSION: int = 14
+## 15 (2026-10-09): flat DOOR leaves with no action collide again — DOS's
+## player test (0x13a95d gather → 0x13ac3e → 0x144d94, spheres against
+## the mesh's faces) has no exception for them, and leaving them out
+## opened MAP.215's exit door onto the void.
+const BAKE_VERSION: int = 15
 
 # ---------------------------------------------------------------------
 # Paths

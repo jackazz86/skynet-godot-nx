@@ -1038,17 +1038,6 @@ func _bake_entity_collision(level: LevelLoader.Level) -> void:
 		# (scripts/level_scene.gd).
 		if _has_collision(c):
 			continue
-		# A door that can never open (a flat DOOR leaf with no action,
-		# LevelLoader._sealed_door) stays without a collider here too:
-		# the loader leaves it out so the route behind stays open, and
-		# this pass gave it one back — MAP.210's DOOR01 across the
-		# cargo box kept the truck shut (playtest 2026-09-15).
-		if not c.has_method("file_off"):
-			var mesh_name: String = String(c.get_meta("mesh_name", ""))
-			if mesh_name.is_empty() and c.mesh != null:
-				mesh_name = c.mesh.resource_path.get_file().get_basename()
-			if LevelLoader._sealed_door(mesh_name, c.mesh):
-				continue
 		# Doors, gates and lifts collide as their AABB box, like every DOS
 		# object: the BIGDOOR leaf is a braced frame whose trimesh has
 		# holes a player capsule slips through (closed!) and thin edges to

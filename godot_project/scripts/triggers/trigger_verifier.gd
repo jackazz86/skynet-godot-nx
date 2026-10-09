@@ -1284,10 +1284,31 @@ func _check_exit(level, graph: Dictionary, node: Dictionary, num: int, id: int,
 	var spot: Dictionary = _stand_in(level, ep, mode, 0.0, id, true)
 	if not bool(spot["ok"]):
 		spot = _stand_wide(level, ep, mode, true)
+	# Nowhere in the doorway's own touch measure with a clear line to it:
+	# the doorway lies behind a shut leaf. That is DOS's ordinary door, not
+	# an unreachable one — the 0xF0 handler (0x138081) measures nothing at
+	# all, it runs when the chain of an 0xEF gate (0x1386a0, from the eye)
+	# switches it on. MAP.242/244/246's WAREDOOR is solid in DOS (flags 01,
+	# no 0x08) and the exit sprite stands 70 units behind it; the gate
+	# stands 7 units behind it, inside the key's reach from the warehouse.
+	# So stand where that gate answers and press there.
+	var via_gate: bool = false
+	if not bool(spot["ok"]):
+		var g: Node = _gate_to_exit_node(level, id)
+		if g != null:
+			var gp: Vector3 = (g.position as Vector3) + (level.origin as Vector3)
+			var gmode: Dictionary = {"radius": float(g.measure()), "pad": 0.0,
+				"origin": "eye", "metric": "3d"}
+			var gs: Dictionary = _stand_in(level, gp, gmode)
+			if not bool(gs["ok"]):
+				gs = _stand_wide(level, gp, gmode)
+			if bool(gs["ok"]):
+				spot = gs
+				via_gate = true
 	if not bool(spot["ok"]):
 		_row(num, id, act, kind, "exit", UNREACHABLE, String(spot["why"]))
 		return
-	spot["shared"] = not _alone_at(spot["feet"], -1)
+	spot["shared"] = via_gate or not _alone_at(spot["feet"], -1)
 	# 1. Touching it must only ARM it — in DOS you walk into the truck and
 	#    press the key at its rear doors; standing there does nothing.
 	var touch: PackedStringArray = await _stand_and_record(level, spot["feet"], ep, true, 0)
@@ -2288,6 +2309,18 @@ func _shooting_spots(level, id: int, aim: Vector3, limit: int) -> Array:
 ## The graph's `first` for an 0xEF gate the player is standing in whose
 ## chain ends in doorway `id` — what the key really does here. Empty when
 ## no such gate is in reach of where he stands now.
+## The live 0xEF gate whose chain ends in doorway `id`, wherever the
+## player is (null when none).
+func _gate_to_exit_node(level, id: int) -> Node:
+	for g in (level.behaviour.prox_nodes() as Array):
+		if g.act_now() != Rules.ACT_PROX_GATE:
+			continue
+		if level.triggers.spent(int(g.id)):
+			continue
+		if level.behaviour.chain_exit(int(g.id)) == id:
+			return g
+	return null
+
 func _gate_chaining_to(level, graph: Dictionary, id: int) -> Array:
 	var eye: Vector3 = _drv.eye()
 	for g in (level.behaviour.prox_nodes() as Array):
