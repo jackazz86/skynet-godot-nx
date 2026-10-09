@@ -1724,34 +1724,53 @@ func _land(v: float) -> void:
 ## from up to STEP_HEIGHT higher and settle back down onto a walkable
 ## floor. Only steps UP to STEP_HEIGHT are taken; nothing happens when
 ## the raised probe is blocked too (a real wall) or finds no floor.
+##
+## The rise is the port's, not DOS's. DOS moves the feet across first and
+## then looks for the floor within +80 of them (0x12c02f), so the head
+## only has to clear the ceiling at the height the feet END UP at. Lifted
+## the full 80 first, a capsule walking into a low opening hits the lintel
+## and the probe calls the step a wall: Future Shock MAP.050's sewer pipe
+## has an 8-unit sill under a 128-unit mouth, and the soldier stopped dead
+## in front of it (2026-10-09). So when the full rise is blocked on the
+## way across, the lower rises are tried as well — what is climbed is
+## still only a walkable floor at most STEP_HEIGHT above the feet.
+const STEP_RISES: Array = [STEP_HEIGHT, 48.0, 24.0, 12.0]
+
 func _step_up(horiz: Vector3, advance: float) -> void:
 	var fwd: Vector3 = horiz.normalized() * maxf(advance, STEP_PROBE)
 	var start: Transform3D = global_transform
-	# 1. Rise as far as STEP_HEIGHT allows.
-	var up := Vector3(0.0, STEP_HEIGHT, 0.0)
+	for h in STEP_RISES:
+		if _step_up_from(start, fwd, float(h)):
+			return
+
+func _step_up_from(start: Transform3D, fwd: Vector3, height: float) -> bool:
+	# 1. Rise as far as `height` allows.
+	var up := Vector3(0.0, height, 0.0)
 	var kc: KinematicCollision3D = move_and_collide(up, true)
 	var rise: Vector3 = up if kc == null else kc.get_travel()
 	if rise.y < 4.0:
-		return
+		return true                     # no room to rise at all: done
 	var t := start.translated(rise)
-	# 2. Advance from up there; a blocked probe means a wall, not a step.
+	# 2. Advance from up there; a blocked probe means a wall at this
+	#    height — a lower rise may still pass under what blocked it.
 	kc = _probe(t, fwd)
 	var adv: Vector3 = fwd if kc == null else kc.get_travel()
 	if adv.length() < STEP_PROBE * 0.5:
-		return
+		return false
 	t = t.translated(adv)
 	# 3. Drop back onto the floor; it must be a walkable slope above the
 	#    starting height (a step), not the ground we started from.
 	kc = _probe(t, Vector3(0.0, -rise.y - 2.0, 0.0))
 	if kc == null:
-		return
+		return true
 	if kc.get_normal().y < cos(floor_max_angle):
-		return
+		return true
 	var landing: Vector3 = t.origin + kc.get_travel()
 	if landing.y - start.origin.y < 2.0:
-		return
+		return true
 	global_position = landing
 	velocity.y = 0.0
+	return true
 
 ## test-only motion from an explicit transform (move_and_collide uses
 ## the body's own transform).
