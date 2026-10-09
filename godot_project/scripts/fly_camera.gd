@@ -278,15 +278,40 @@ const THROWABLES: Array = [
 	# DOS records 14-19 (2026-09-15 audit): the ammo's damage is the direct
 	# hit AND the blast strength (Projectile.dos_blast — the reach is half
 	# the strength + 40, capped at 290); there is no fuse, they go off on
-	# the first thing they touch; thrown at 500 u/s ahead and 392 up (the
+	# the first thing they touch (the two with "bounce" bounce off the
+	# level until they slow down); thrown at 500 u/s ahead and 392 up (the
 	# satchel is dropped, 50 ahead). `splash` only sizes the deathmatch
 	# report and the effect.
-	{"rec": 14, "name": "PIPE BOMB",     "pool": 5, "dmg": 200.0,   "splash": 140.0, "speed": 500.0},
-	{"rec": 15, "name": "MOLOTOV",       "pool": 6, "dmg": 125.0,   "splash": 102.0, "speed": 500.0},
-	{"rec": 16, "name": "GRENADE",       "pool": 2, "dmg": 200.0,   "splash": 140.0, "speed": 500.0},
-	{"rec": 18, "name": "CANISTER BOMB", "pool": 8, "dmg": 800.0,   "splash": 290.0, "speed": 500.0},
-	{"rec": 19, "name": "SATCHEL",       "pool": 9, "dmg": 15000.0, "splash": 290.0, "speed": 50.0},
+	#
+	# Each record names its own ammo type (+0x14 → "ammo"), and the row of
+	# the v1.01 ammo table (0x40828 + type * 0x32) gives what is seen and
+	# heard: +0x04 the in-flight sprite ("spr" = [index >> 7 bank,
+	# index & 0x7F record]), +0x08 the effect bank at impact ("fx",
+	# 0xb200 >> 7 = 356, 0xb700 >> 7 = 366), +0x20 the impact sound id
+	# ("isnd": 33 explo1, 34 explo2, 36 explo4; +0x1c, the fire sound, is
+	# -1 for all five) and +0x28 bit 0, the bounce flag ("bounce", see
+	# Grenade.BOUNCE_KEEP). The sprite is one still frame (+0x2c = 0).
+	{"rec": 14, "name": "PIPE BOMB",     "pool": 5, "dmg": 200.0,   "splash": 140.0, "speed": 500.0,
+		"ammo": 12, "spr": [217, 4], "fx": 366, "isnd": 34, "bounce": true},
+	{"rec": 15, "name": "MOLOTOV",       "pool": 6, "dmg": 125.0,   "splash": 102.0, "speed": 500.0,
+		"ammo": 13, "spr": [217, 1], "fx": 366, "isnd": 34, "bounce": false},
+	{"rec": 16, "name": "GRENADE",       "pool": 2, "dmg": 200.0,   "splash": 140.0, "speed": 500.0,
+		"ammo": 3,  "spr": [217, 2], "fx": 356, "isnd": 33, "bounce": false},
+	{"rec": 18, "name": "CANISTER BOMB", "pool": 8, "dmg": 800.0,   "splash": 290.0, "speed": 500.0,
+		"ammo": 14, "spr": [217, 0], "fx": 356, "isnd": 36, "bounce": true},
+	{"rec": 19, "name": "SATCHEL",       "pool": 9, "dmg": 15000.0, "splash": 290.0, "speed": 50.0,
+		"ammo": 20, "spr": [200, 4], "fx": 356, "isnd": 36, "bounce": false},
 ]
+## The weapon id a thrown item goes out under on the network: this plus
+## its DOS record, clear of the `_weapons` slots (dm_game._on_fired).
+const NET_THROW_BASE: int = 100
+
+## The THROWABLES row of DOS record `rec`, or {} when there is none.
+static func throwable_for_record(rec: int) -> Dictionary:
+	for t in THROWABLES:
+		if int(t["rec"]) == rec:
+			return t
+	return {}
 ## The five keys, each wired to ITS OWN RECORD rather than to a place in
 ## the list above. The poller's chain (0x11b0f5 onwards) reads
 ## `mov eax,15 / 14 / 16 / 18 / 19` for F1..F5 and hands each straight to
@@ -2228,7 +2253,8 @@ func _throw_secondary() -> void:
 	var vel: Vector3 = fwd * float(t.get("speed", HAND_GRENADE_SPEED)) + Vector3.UP * THROW_LIFT
 	var arc: Vector3 = vel.normalized()
 	if Net.active:
-		Net.send_fire(5, muzzle, arc)            # drawn as a launcher shot
+		# The aim, not the arc: the peer adds the same lift (dm_game._on_thrown).
+		Net.send_fire(NET_THROW_BASE + int(t["rec"]), muzzle, fwd)
 	var g := Grenade.new()
 	get_tree().current_scene.add_child(g)
 	g.setup(muzzle, arc, float(t["dmg"]), float(t["splash"]), self, vel.length(), t)

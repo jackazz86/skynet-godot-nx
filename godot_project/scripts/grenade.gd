@@ -13,6 +13,12 @@
 ## spawns the effect bank at +0x08 (0xB200 = TEXTURE.356) with the sound
 ## at +0x20 (33 = explo1.raw). Launch is straight along the aim — the arc
 ## comes from gravity alone, so aiming up is what gives range.
+##
+## The thrown items use their OWN ammo types (v1.01 table 0x40828, stride
+## 0x32; the weapon record's +0x14 picks the row), and each one names its
+## own sprite, effect bank and bang — fly_camera.THROWABLES carries them
+## ("spr", "fx", "isnd", "bounce"). Only the launcher shell and the hand
+## grenade share TEXTURE.217 record 2.
 
 extends Node3D
 
@@ -31,15 +37,27 @@ const SPEED: float = 3400.0                  # initial muzzle velocity
 const SPRITE_BANK: int = 217
 const SPRITE_RECORD: int = 2
 const IMPACT_BANK: int = 356
+const IMPACT_SOUND: int = 33                 # explo1.raw
 const SPRITE_PIXEL_SIZE: float = 2.0
+## Ammo flag +0x28 bit 0 (pipe bomb, canister bomb): off level geometry
+## and anything that takes no damage the item BOUNCES (0x1233ea). The
+## velocity is mirrored in the surface and scaled by 0xaaab / 0x10000 =
+## 2/3 (FUN_0011c19a → FUN_0011c100); it goes off instead when the
+## bounced speed is under 50 u/s, or at most 100 u/s on a floor (the
+## normal's up component at least 252/256). Each bounce plays sound id
+## 0x18.
+const BOUNCE_KEEP: float = 2.0 / 3.0
+const BOUNCE_DEAD_SPEED: float = 50.0
+const BOUNCE_REST_SPEED: float = 100.0
+const BOUNCE_FLOOR_UP: float = 252.0 / 256.0
+const BOUNCE_SOUND: int = 0x18               # jmpmet.raw
 
-static var _sprite_tex: Texture2D = null
-static var _sprite_tried: bool = false
+## Sprite textures by DOS sprite index (bank << 7 | record).
+static var _sprite_cache: Dictionary = {}
 
 ## Another game's data came in (SkynetPaths.switch_game): its sprite bank.
 static func reset_game() -> void:
-	_sprite_tex = null
-	_sprite_tried = false
+	_sprite_cache.clear()
 ## The fallback body when the sprite is missing, shared.
 static var _body_mesh: SphereMesh = null
 static var _body_mat: StandardMaterial3D = null
@@ -56,21 +74,24 @@ var _exploded: bool = false
 var _fuse: float = FUSE_TIME
 var _burst: bool = false
 var _contact: bool = false
+var _bounce: bool = false
+var _impact_bank: int = IMPACT_BANK
+var _impact_sound: int = IMPACT_SOUND
 ## A replicated copy of somebody else's grenade: flies and bangs, hurts
 ## nobody on this machine (the thrower's copy does the damage).
 var visual_only: bool = false
 ## The flight ray, built once in setup() (the thrower left out).
 var _ray: PhysicsRayQueryParameters3D = null
 
-## TEXTURE.217 record 2 as a texture, index 0 transparent — the same
-## record decode the level's billboards get, converted once into the
-## asset cache (converted/tex/T217_002_A).
-static func sprite_texture() -> Texture2D:
-	if _sprite_tried:
-		return _sprite_tex
-	_sprite_tried = true
-	_sprite_tex = Assets.texture(SPRITE_BANK, SPRITE_RECORD, true)
-	return _sprite_tex
+## A thrown item's sprite (TEXTURE.217 record 2 by default) as a
+## texture, index 0 transparent — the same record decode the level's
+## billboards get, converted once into the asset cache
+## (converted/tex/T217_002_A).
+static func sprite_texture(bank: int = SPRITE_BANK, rec: int = SPRITE_RECORD) -> Texture2D:
+	var key: int = (bank << 7) | rec
+	if not _sprite_cache.has(key):
+		_sprite_cache[key] = Assets.texture(bank, rec, true)
+	return _sprite_cache[key]
 
 ## Launch from `from` heading `dir` (unit vector). Initial speed is
 ## constant; `damage` and `splash` set the detonation payload.
@@ -86,11 +107,16 @@ func setup(from: Vector3, dir: Vector3, damage: float, splash: float,
 	_life = _fuse
 	_burst = bool(cfg.get("burst", false))
 	_contact = not cfg.is_empty()              # a thrown item: off on contact
-	var tex := sprite_texture()
+	_bounce = bool(cfg.get("bounce", false))
+	_impact_bank = int(cfg.get("fx", IMPACT_BANK))
+	_impact_sound = int(cfg.get("isnd", IMPACT_SOUND))
+	var spr_id: Array = cfg.get("spr", [SPRITE_BANK, SPRITE_RECORD])
+	var tex := sprite_texture(int(spr_id[0]), int(spr_id[1]))
 	if tex != null:
 		var spr := Sprite3D.new()
 		spr.texture = tex
-		spr.pixel_size = SPRITE_PIXEL_SIZE
+		spr.pixel_size = Assets.sprite_pixel_size(int(spr_id[0]), int(spr_id[1]), tex,
+			SPRITE_PIXEL_SIZE)
 		spr.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		spr.shaded = false
 		spr.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD
@@ -139,16 +165,28 @@ func _physics_process(delta: float) -> void:
 			while n != null and not n.has_method("take_damage") and not n.has_method("net_damage") and not n.is_in_group("dm_vehicle"):
 				n = n.get_parent()
 			# DOS: the impact callback runs on the first thing struck, the
-			# ground and the walls included — a thrown item never bounces
-			# (2026-09-15 audit; the fuse and the bounce were the port's).
-			if _burst or (n != null and n != _owner and n is Node3D and _is_target(n)) \
-					or _contact:
+			# ground and the walls included — a thrown item without the
+			# bounce flag never bounces (2026-09-15 audit; the fuse and the
+			# bounce were the port's).
+			var target: bool = n != null and n != _owner and n is Node3D and _is_target(n)
+			if _burst or target or (_contact and not _bounce):
 				_detonate(hit["position"])
+				return
+			var nrm: Vector3 = hit.get("normal", Vector3.UP)
+			if _contact:
+				# The bounce flag (pipe bomb, canister bomb), 0x1233ea.
+				var out: Vector3 = _vel.bounce(nrm) * BOUNCE_KEEP
+				var sp: float = out.length()
+				if sp < BOUNCE_DEAD_SPEED or (sp <= BOUNCE_REST_SPEED and nrm.y >= BOUNCE_FLOOR_UP):
+					_detonate(hit["position"])
+					return
+				_vel = out
+				global_position = hit["position"] + nrm * 2.0
+				Audio.play_id_3d(BOUNCE_SOUND, global_position)
 				return
 			# Off a wall it bounces; on the floor it drops dead and skids a
 			# little — the DOS grenade never hopped back up off the ground
 			# (playtest, 2026-09-05).
-			var nrm: Vector3 = hit.get("normal", Vector3.UP)
 			global_position = hit["position"] + nrm * 2.0
 			if nrm.y > 0.6:
 				_vel = (_vel - nrm * _vel.dot(nrm)) * FLOOR_SLIDE
@@ -172,11 +210,11 @@ static func _is_target(n: Node) -> bool:
 
 func _detonate(at: Vector3) -> void:
 	_exploded = true
-	Audio.play_sfx_3d("EXPLO1.RAW", at, -1.0)
+	Audio.play_id_3d(_impact_sound, at, -1.0)
 	if visual_only:
 		var vscene := get_tree().current_scene
 		if vscene != null:
-			Explosion.spawn(vscene, at, 280.0, IMPACT_BANK)
+			Explosion.spawn(vscene, at, 280.0, _impact_bank)
 		queue_free()
 		return
 	for a in get_tree().get_nodes_in_group("dm_actor"):
@@ -203,5 +241,5 @@ func _detonate(at: Vector3) -> void:
 	# eleven sparks and the effect sprite's own animation.)
 	var scene := get_tree().current_scene
 	if scene != null:
-		Explosion.spawn(scene, at, 280.0, IMPACT_BANK)
+		Explosion.spawn(scene, at, 280.0, _impact_bank)
 	queue_free()

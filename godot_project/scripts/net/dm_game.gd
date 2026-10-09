@@ -443,6 +443,9 @@ func _process(delta: float) -> void:
 # ---------------------------------------------------------------------
 
 func _on_fired(id: int, weapon: int, from: Vector3, dir: Vector3) -> void:
+	if player != null and weapon >= player.NET_THROW_BASE:
+		_on_thrown(id, weapon - player.NET_THROW_BASE, from, dir)
+		return
 	var w: Dictionary = weapon_record(weapon)
 	if w.is_empty():
 		return
@@ -488,6 +491,22 @@ func _on_fired(id: int, weapon: int, from: Vector3, dir: Vector3) -> void:
 				var n: Node = hit["collider"] as Node
 				if n != null and not n.is_in_group("dm_actor") and not n.is_in_group("player"):
 					Explosion.spawn(scene, endpoint, 40.0, player.IMPACT_BANK_BULLET)
+
+## Somebody else's thrown item (DOS record `rec`): the same sprite, arc,
+## bounce and bang as the thrower's own, hurting nobody here.
+func _on_thrown(id: int, rec: int, from: Vector3, dir: Vector3) -> void:
+	var t: Dictionary = player.throwable_for_record(rec)
+	var scene := get_tree().current_scene
+	if t.is_empty() or scene == null:
+		return
+	var av = _avatars.get(id)
+	# `dir` is the thrower's aim; the throw adds the lift (fly_camera._throw_secondary).
+	var vel: Vector3 = dir * float(t["speed"]) + Vector3.UP * player.THROW_LIFT
+	var g := Grenade.new()
+	g.visual_only = true
+	scene.add_child(g)
+	g.setup(from, vel.normalized(), 0.0, 0.0, av if av != null and is_instance_valid(av) else null,
+		vel.length(), t)
 
 # ---------------------------------------------------------------------
 # Health, death, score

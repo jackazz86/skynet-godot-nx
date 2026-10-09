@@ -23,6 +23,7 @@ const Explosion := preload("res://scripts/explosion.gd")
 const MuzzleFlash := preload("res://scripts/muzzle_flash.gd")
 const SmokePuff := preload("res://scripts/smoke_puff.gd")
 const Grenade := preload("res://scripts/grenade.gd")
+const FlyCamera := preload("res://scripts/fly_camera.gd")
 const Projectile := preload("res://scripts/projectile.gd")
 const Tracer := preload("res://scripts/tracer.gd")
 const Debris := preload("res://scripts/debris.gd")
@@ -159,6 +160,12 @@ static func _load_all() -> void:
 	MuzzleFlash.texture()
 	SmokePuff.frames()
 	Grenade.sprite_texture()
+	# Each thrown item's own sprite (fly_camera.THROWABLES "spr"); their
+	# impact banks and sounds come from AIData.AMMO above.
+	for t in FlyCamera.THROWABLES:
+		var spr: Array = t.get("spr", [])
+		if spr.size() == 2:
+			Grenade.sprite_texture(int(spr[0]), int(spr[1]))
 	for m in models:
 		Projectile.model_mesh(String(m))
 	Projectile.soft_dot()
