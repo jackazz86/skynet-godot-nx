@@ -839,6 +839,12 @@ func _load_current() -> void:
 ## so a chair can still be shot to bits — but on FURNITURE_LAYER, which
 ## the player's body (collision_mask 1) does not collide with. Movers
 ## (doors, lifts) never qualify.
+## OFF since the soldier got DOS's own width (radius 15): DOS collides
+## with every variant-1 entity its gather 0x13a95d does not skip (flag
+## 0x08), chairs included — Future Shock's hotel is climbed by jumping
+## onto a chair to reach the floor above. Kept switchable for --solve
+## comparisons only.
+const UNBLOCK_FURNITURE: bool = false
 const FURNITURE_LAYER: int = 1 << 4
 const FURNITURE_MAX_SIDE: float = 48.0
 const FURNITURE_MAX_HEIGHT: float = 80.0
@@ -917,7 +923,8 @@ func _begin_level(nm: String) -> void:
 	if level.entities:
 		_bake_entity_collision(level)
 		add_child(level.entities)
-		_unblock_furniture(level)
+		if UNBLOCK_FURNITURE:
+			_unblock_furniture(level)
 		if _cli.has("spawn-probe"):
 			var outside: int = 0
 			for c in level.entities.get_children():
@@ -3340,7 +3347,8 @@ func _build_zone(zname: String, z: Dictionary, carry: Dictionary = {}) -> LevelL
 	if level.entities != null:
 		_bake_entity_collision(level)
 		node.add_child(level.entities)
-		_unblock_furniture(level)
+		if UNBLOCK_FURNITURE:
+			_unblock_furniture(level)
 	# The zone's overlay, before the Behaviour branch enters the tree and
 	# its armed cues fire. Walking between the zones of one mission scene
 	# restores nothing — the zone never went away. What does get applied:
