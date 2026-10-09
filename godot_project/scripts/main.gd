@@ -1413,8 +1413,14 @@ func _find_clear_spawn(pos: Vector3) -> Vector3:
 	var space := get_world_3d().direct_space_state
 	if space == null:
 		return pos
+	# The probe is the body the player really has (the DOS 15: capsule 11
+	# plus the 4 u margin), not a fatter one: Future Shock's MAP.010 puts
+	# the way back out of the gas station (marker 83) 19 u in front of the
+	# shop's wall, which a 22 u probe called blocked, and the nudge then
+	# landed INSIDE the hollow shop — trapped behind walls culled from
+	# within (issue #5).
 	var shape := CapsuleShape3D.new()
-	shape.radius = 22.0
+	shape.radius = _player_body_radius()
 	shape.height = 80.0
 	var q := PhysicsShapeQueryParameters3D.new()
 	q.collision_mask = ZoneLayers.world_mask()
@@ -1427,6 +1433,16 @@ func _find_clear_spawn(pos: Vector3) -> Vector3:
 			q.transform = Transform3D(Basis(), p + Vector3(0.0, 60.0, 0.0))
 			if not space.intersect_shape(q, 1).is_empty():
 				continue
+			# …and a nudge never goes through a wall: a spot the marker
+			# cannot see at body height is in another room (or inside a
+			# building whose walls only face out).
+			if ring > 0.0:
+				var los := PhysicsRayQueryParameters3D.create(pos + Vector3(0.0, 60.0, 0.0), p + Vector3(0.0, 60.0, 0.0))
+				los.collision_mask = ZoneLayers.world_mask()
+				los.collide_with_areas = false
+				los.hit_back_faces = true
+				if space.intersect_ray(los).has("position"):
+					continue
 			# A nudged spot must have a floor under it: on MAP.252/473 the
 			# start marker touched a table, the first free spot 100 u away
 			# was OUTSIDE the room wall, and the player fell into the void
@@ -1441,6 +1457,16 @@ func _find_clear_spawn(pos: Vector3) -> Vector3:
 			return p
 	print("[skynet] spawn: no clear spot with a floor nearby — using the marker")
 	return pos
+
+## The radius the player's body collides with: its capsule plus the
+## character's safe margin (22, the old probe, when there is no player).
+func _player_body_radius() -> float:
+	if not is_instance_valid(player):
+		return 22.0
+	for c in player.get_children():
+		if c is CollisionShape3D and (c as CollisionShape3D).shape is CapsuleShape3D:
+			return ((c as CollisionShape3D).shape as CapsuleShape3D).radius + player.safe_margin
+	return 22.0
 
 ## DOS player: eye 75 units above the feet (DAT_00038ce5 = 0x4b,
 ## skynet_gh.c:25016); marker/start positions are EYE positions.
