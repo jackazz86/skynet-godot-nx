@@ -1129,11 +1129,16 @@ const JEEP_TILT_RATE: float = 6.0
 
 ## Jeep turret aim (DOS: the keys drive, the mouse turns the view - the
 ## camera is the turret). Relative to the car's heading.
+## The pitch limits are DOS's: the jeep's look (GAME.EXE v1.01 0x135b04,
+## the first call of the jeep's input routine 0x1356ec) turns
+## DAT_0006990d with the same mouse and look keys the soldier's pitch
+## takes, clamped to +-0x100 of 2048 = +-45 degrees both ways (the soldier
+## gets +-0x180). It was a hand-set -26/+34.
 var _aim_yaw: float = 0.0
 var _aim_pitch: float = 0.0
 const JEEP_AIM_YAW: float = 1.1
-const JEEP_AIM_PITCH_DOWN: float = -0.45
-const JEEP_AIM_PITCH_UP: float = 0.6
+const JEEP_AIM_PITCH_DOWN: float = -PI / 4.0
+const JEEP_AIM_PITCH_UP: float = PI / 4.0
 ## Ramming (DOS v1.00 0x135a7e, run once per move from 0x135588). The
 ## car's state is saved before the move; after it, the first object the
 ## hull touches gets ObjHit (0x139019) with speed_field >> 9 — the field

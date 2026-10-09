@@ -58,7 +58,9 @@ const PathsLib := preload("res://scripts/skynet_paths.gd")
 ## carry their Render kind, and VERSION gained the data fingerprint.
 ## 11 (2026-09-23): terrain cells in their own 0..1 UVs, clamped (the
 ## SMOOTH TEXTURES seams).
-const CACHE_VERSION: int = 11
+## 12 (2026-10-09): solid-colour records (TEXTURE.000/001) read their own
+## palette index, not the next record's.
+const CACHE_VERSION: int = 12
 ## Dependencies are saved by their absolute path outside res://.
 ## FLAG_RELATIVE_PATHS would let a moved folder still resolve, but a moved
 ## folder is rebuilt anyway (the trust manifest is keyed by the absolute
@@ -983,7 +985,7 @@ static func _parse_tex_header(b: PackedByteArray) -> PackedInt32Array:
 		return out
 	for r in tag:
 		var ro: int = 28 + r * 20
-		if ro + 20 > size:
+		if ro + 18 > size:                       # (see TextureNNN.parse)
 			break
 		var w: int = 0
 		var h: int = 0

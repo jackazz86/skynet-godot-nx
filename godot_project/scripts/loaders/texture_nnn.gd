@@ -98,8 +98,12 @@ static func parse(bytes: PackedByteArray) -> TexFile:
 
 	var pixels: int = 0
 	for r in tag:
+		# Outer records are 20 bytes from offset 26; `ro` is the record's
+		# descriptor-offset field at its +2, so the record ends at ro + 18.
+		# (ro + 20 dropped the last record of TEXTURE.000/001: their 128
+		# records end exactly at the end of the file.)
 		var ro: int = 28 + r * 20
-		if ro + 20 > bytes.size():
+		if ro + 18 > bytes.size():
 			break                              # outer record table truncated
 		if pixels > MAX_FILE_PIXELS:
 			t.records.append(Record.new())     # over budget: placeholders
@@ -118,16 +122,22 @@ static func parse(bytes: PackedByteArray) -> TexFile:
 static func _parse_record(bytes: PackedByteArray, ro: int) -> Record:
 	var desc_off: int = _u32(bytes, ro)
 	# Solid-Colors archives (TEXTURE.000 / TEXTURE.001) store no
-	# descriptor — desc_off == 0 and the outer record's byte +19 holds a
-	# palette index. Synthesize a 1×1 record so the mesh path renders the
-	# face as that solid colour.
+	# descriptor — desc_off == 0 and the record's byte +1 (ro - 1) holds
+	# its palette index: record r of TEXTURE.000 is colour r, of
+	# TEXTURE.001 colour 128 + r, so a flat face's type IS its palette
+	# index, as DOS draws it (types <= 0xff get no texture set-up at all,
+	# GAME.EXE v1.01 0x15040e). Synthesize a 1×1 record so the mesh path
+	# renders the face as that solid colour. This read ro + 19 until
+	# 2026-10-09 — the NEXT record's colour, one palette step off: the end
+	# of a ramp jumped to the start of the next, so the jeep's floor (63)
+	# came out pale cyan and its side panels (95) pale yellow.
 	if desc_off == 0:
 		var rec_sc := Record.new()
 		rec_sc.width = 1
 		rec_sc.height = 1
 		var px := PackedByteArray()
 		px.resize(1)
-		px[0] = bytes[ro + 19]
+		px[0] = bytes[ro - 1]
 		rec_sc.pixels = px
 		return rec_sc
 	if desc_off + 28 > bytes.size():
