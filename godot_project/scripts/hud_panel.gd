@@ -224,8 +224,11 @@ func _icon(rec: int) -> Texture2D:
 func _img(nm: String, transparent0: bool) -> ImageTexture:
 	var bytes := PackedByteArray()
 	for arc in (["MDMDHRES.BSA", "MDMDIMGS.BSA"] if _hires else ["MDMDIMGS.BSA"]):
+		# The 640x480 set is SkyNET's own in Future Shock too (hires_archive).
+		var src: Array = SkynetPaths.hires_archive() if arc == "MDMDHRES.BSA" \
+			else [SkynetPaths.gamedata_path(arc), SkynetPaths.variant]
 		var bsa := BSAReader.new()
-		if not bsa.open(SkynetPaths.gamedata_path(arc), SkynetPaths.variant):
+		if not bsa.open(String(src[0]), src[1]):
 			continue
 		bytes = bsa.read(nm)
 		bsa.close()

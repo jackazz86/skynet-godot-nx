@@ -323,6 +323,16 @@ func front_archive(nm: String) -> Array:
 			return [p, BsaVariant.SKYNET_FULL]
 	return [gamedata_path(nm), variant]
 
+## [path, archive key] of the 640x480 art, MDMDHRES.BSA — SkyNET's own in
+## Future Shock too, which ships none. GAME.EXE opens every archive through
+## FUN_0013e9c5, which tries its search directories in order: 0x5f400,
+## 0x5f480, and only then 0x5f500 (each "<dir>\gamedata", FUN_0013e47f).
+## The first ones are SkyNET's install, so in FS mode the hi-res HUD and
+## weapons still come from SkyNET's folder (owner's FS log 2026-10-09:
+## "BSA open failed: .../shock/gamedata/MDMDHRES.BSA").
+func hires_archive() -> Array:
+	return front_archive("MDMDHRES.BSA")
+
 ## A loose front-end file (FONT00NN.FNT) the same way: SkyNET's own copy
 ## when its folder is known — FS's fonts map K/H to other glyphs and
 ## have no lower case — else this game's.

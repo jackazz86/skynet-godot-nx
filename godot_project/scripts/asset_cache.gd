@@ -361,7 +361,7 @@ func _fingerprint() -> String:
 		var parts := PackedStringArray([SkynetPaths.game])
 		for arc in [SkynetPaths.map_archive, "MDMDOBJS.BSA", "MDMDENMS.BSA",
 				"MDMDIMGS.BSA", "MDMDSFXS.BSA", HIRES_ARCHIVE]:
-			var p: String = SkynetPaths.gamedata_path(String(arc))
+			var p: String = String(_arc_source(String(arc))[0])
 			parts.append("%s=%d" % [arc, FileAccess.get_size(p) if FileAccess.file_exists(p) else -1])
 		_fp = ",".join(parts)
 	return _fp
@@ -911,25 +911,35 @@ func _read_from(arc: String, nm: String) -> PackedByteArray:
 	var shared: BSAReader = _readers.get(arc)
 	if shared != null:
 		return shared.read(nm)
-	var path := SkynetPaths.gamedata_path(arc)
+	var src: Array = _arc_source(arc)
+	var path := String(src[0])
 	if not FileAccess.file_exists(path):
 		return PackedByteArray()
 	var b := BSAReader.new()
-	if not b.open(path, SkynetPaths.variant):
+	if not b.open(path, src[1]):
 		return PackedByteArray()
 	var bytes := b.read(nm)
 	b.close()
 	return bytes
 
+## [path, archive key] an archive is read from: this game's data folder,
+## except the 640x480 set, which is SkyNET's in Future Shock too
+## (SkynetPaths.hires_archive).
+func _arc_source(arc: String) -> Array:
+	if arc == HIRES_ARCHIVE:
+		return SkynetPaths.hires_archive()
+	return [SkynetPaths.gamedata_path(arc), SkynetPaths.variant]
+
 func _open_readers() -> void:
 	_close_readers()
 	for arc in [SkynetPaths.map_archive, "MDMDOBJS.BSA", "MDMDENMS.BSA",
 			"MDMDIMGS.BSA", "MDMDSFXS.BSA", HIRES_ARCHIVE]:
-		var path := SkynetPaths.gamedata_path(String(arc))
+		var src: Array = _arc_source(String(arc))
+		var path := String(src[0])
 		if not FileAccess.file_exists(path):
 			continue
 		var b := BSAReader.new()
-		if b.open(path, SkynetPaths.variant):
+		if b.open(path, src[1]):
 			_readers[arc] = b
 
 func _close_readers() -> void:
@@ -1215,7 +1225,7 @@ func sound(nm: String, loop: bool, builder: Callable) -> AudioStreamWAV:
 ## so a missing one is not tried (and logged) for every weapon.
 func _hires_available() -> bool:
 	if _hires_ok < 0:
-		_hires_ok = 1 if FileAccess.file_exists(SkynetPaths.gamedata_path(HIRES_ARCHIVE)) else 0
+		_hires_ok = 1 if FileAccess.file_exists(String(_arc_source(HIRES_ARCHIVE)[0])) else 0
 		if _hires_ok == 0:
 			print("[assets] no %s — the 320x200 weapon art only" % HIRES_ARCHIVE)
 	return _hires_ok == 1
