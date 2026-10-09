@@ -1883,7 +1883,13 @@ func _make_moon() -> void:
 func _update_moon() -> void:
 	if _moon == null or not is_instance_valid(_moon) or camera == null:
 		return
-	_moon.global_position = camera.global_position + _moon_dir() * MOON_DIST
+	_moon.global_position = _view_cam().global_position + _moon_dir() * MOON_DIST
+
+## The camera the frame is drawn from: the player's, or the rocket's eye
+## (fly_camera.rocket_view) — the sky, moon and stars sit round THAT one.
+func _view_cam() -> Camera3D:
+	var c: Camera3D = get_viewport().get_camera_3d()
+	return c if c != null else camera
 
 ## FUN_0013a000: the star table, built once (Godot direction, palette index).
 static func _build_star_table() -> void:
@@ -1955,7 +1961,7 @@ func _make_stars() -> void:
 func _update_stars() -> void:
 	if _stars == null or not is_instance_valid(_stars) or camera == null:
 		return
-	_stars.global_position = camera.global_position
+	_stars.global_position = _view_cam().global_position
 	var mat := _stars.material_override as StandardMaterial3D
 	var px: float = maxf(1.0, roundf(get_viewport().get_visible_rect().size.y / STAR_FRAME_ROWS))
 	if mat != null and mat.point_size != px:
@@ -2222,7 +2228,7 @@ func _process(delta: float) -> void:
 	_campath_step(delta)
 	if _current_level != null and _current_level.sky != null \
 			and is_instance_valid(_current_level.sky):
-		_current_level.sky.position = camera.global_position
+		_current_level.sky.position = _view_cam().global_position
 	_update_stars()
 	if _moon != null and is_instance_valid(_moon):
 		if _moon_fall_v > 0.0 and _moon.visible:
@@ -6081,6 +6087,9 @@ func run_command(line: String) -> String:
 			if not is_instance_valid(player):
 				return "no player"
 			var n: int = int(args[0]) if args.size() > 0 and args[0].is_valid_int() else 6
+			# `shoot N run`: hold RUN from here on, as the rocket's eye needs.
+			if args.has("run"):
+				player.set("ui_sprint", true)
 			for _i in n:
 				player.set("_fire_cd", 0.0)
 				player.call("_shoot")

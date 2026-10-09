@@ -88,8 +88,7 @@ var input_locked: bool = false
 var ride_view: bool = false:
 	set(v):
 		ride_view = v
-		if _cockpit_pivot != null and is_instance_valid(_cockpit_pivot):
-			_cockpit_pivot.visible = not v
+		_show_cockpit()
 ## Deathmatch class: HUMAN 1.3, TERMINATOR 0.85 (Net.CLASS_SPEED).
 var class_speed: float = 1.0
 ## Debug: when true, the player takes no damage. Static so the menu's
@@ -2014,6 +2013,8 @@ func _shoot(idx: int = -1) -> void:
 		var proj: Node3D = Projectile.new()
 		fx_parent.add_child(proj)
 		proj.setup(muzzle, shot, dmg, _projectile_cfg(kind, w), self)
+		if kind == "rocket":
+			_rocket_fired(proj)
 		return
 
 	# Hitscan ray for bullet / shotgun.
@@ -2586,11 +2587,13 @@ const NO_FRAMES: Array = []
 func _process(delta: float) -> void:
 	_update_projection()
 	_step_death_view(delta)
+	_step_rocket_view()
 	if _viewmodel == null:
 		return
 	var frames: Array = _vm_cache.get(_weapon_idx, NO_FRAMES) if vehicle == VEH_FOOT else NO_FRAMES
 	# A corpse holds no gun.
-	_viewmodel.visible = not frames.is_empty() and _death_t < 0.0 and not ride_view
+	_viewmodel.visible = not frames.is_empty() and _death_t < 0.0 and not ride_view \
+		and not rocket_view
 	if frames.is_empty():
 		_vm_firing = false
 		return
@@ -2625,6 +2628,7 @@ const DEATH_PITCH: float = -0.22          # and looks along the ground
 var _death_t: float = -1.0                # -1 = alive
 
 func begin_death_view() -> void:
+	end_rocket_view()
 	if _death_t < 0.0:
 		_death_t = 0.0
 
@@ -2644,6 +2648,95 @@ func _step_death_view(delta: float) -> void:
 	_cam.position.y = lerpf(float(VEH_EYE[VEH_FOOT]), DEATH_EYE, k)
 	_cam.rotation.x = lerpf(_pitch, DEATH_PITCH, k)
 	_cam.rotation.z = DEATH_ROLL * k
+
+## --- the rocket's eye (DOS follow camera) ----------------------------
+## DOS GAME.EXE v1.01: ammo types whose flags (+0x28) carry bit 8 — type 5,
+## the ROCKET of the rocket launcher and of the jeep's and the HK's pods
+## (records 6, 22/23, 25) — hand the view to the shot when the RUN key
+## (CONTROLS.DAT +0x28, input bit 0x1000000) is held at the moment it
+## leaves the barrel (spawn 0x123028 -> 0x11dc99, flag 0x400000 in 0x30a50).
+## Every tick of its flight (0x123322) the camera looks along the rocket's
+## velocity (0x1389bb: world-up basis, no roll) from (0,-10,-120) in that
+## frame — 120 u behind it and 10 u above (DOS y is down) — while the
+## soldier's own look and position stay his (0x11dd3e saves them, 0x11dc35
+## puts them back after the frame), so he still walks and turns. Letting
+## go of RUN ends it there and then (0x123347 -> 0x11dcec); otherwise it
+## ends when ANY such rocket leaves the list (hit or lifetime out,
+## 0x1230a4 -> 0x11dcec). Meanwhile no weapon, reticle or cockpit is drawn
+## (0x125d1a / 0x12695c skip on 0x400000); the HUD bar stays. The death
+## view wins over it (0x36200 checked first).
+const ROCKET_EYE_BACK: float = 120.0
+const ROCKET_EYE_UP: float = 10.0
+var rocket_view: bool = false
+var _rocket_cam: Camera3D = null
+var _rocket_followed: Node3D = null
+
+func _show_cockpit() -> void:
+	if _cockpit_pivot != null and is_instance_valid(_cockpit_pivot):
+		_cockpit_pivot.visible = not ride_view and not rocket_view
+
+## A rocket just left one of the player's barrels.
+func _rocket_fired(proj: Node3D) -> void:
+	# Any follow-flagged rocket ending ends the view (0x1230a4), not only
+	# the one the camera rides.
+	proj.tree_exiting.connect(end_rocket_view)
+	if _sprinting() and _death_t < 0.0 and health > 0.0:
+		_begin_rocket_view(proj)
+
+func _begin_rocket_view(proj: Node3D) -> void:
+	if _cam == null or not is_inside_tree():
+		return
+	if _rocket_cam == null or not is_instance_valid(_rocket_cam):
+		_rocket_cam = Camera3D.new()
+		_rocket_cam.name = "RocketCamera"
+		_rocket_cam.top_level = true
+		_rocket_cam.set_meta(&"rocket_eye", true)   # projectile.gd draws it at 120 u
+		add_child(_rocket_cam)
+	_rocket_followed = proj
+	rocket_view = true
+	_show_cockpit()
+	_step_rocket_view()
+	_rocket_cam.make_current()
+
+func end_rocket_view() -> void:
+	if not rocket_view:
+		return
+	rocket_view = false
+	_rocket_followed = null
+	_show_cockpit()
+	# Only when the view is still the rocket's — the automap (which pauses
+	# the game) or another scripted view keeps its own.
+	var cur: Camera3D = get_viewport().get_camera_3d() if is_inside_tree() else null
+	if _cam != null and is_instance_valid(_cam) and _cam.is_inside_tree() \
+			and (cur == null or cur == _rocket_cam):
+		_cam.make_current()
+
+func _step_rocket_view() -> void:
+	if not rocket_view:
+		return
+	if not _sprinting() or _rocket_followed == null \
+			or not is_instance_valid(_rocket_followed) or _cam == null:
+		end_rocket_view()
+		return
+	var dir: Vector3 = _rocket_followed.get("_dir")
+	var c: Camera3D = _rocket_cam
+	# The player's lens: same field, clip planes, frustum shift, layers.
+	c.fov = _cam.fov
+	c.near = _cam.near
+	c.far = _cam.far
+	c.projection = _cam.projection
+	c.size = _cam.size
+	c.frustum_offset = _cam.frustum_offset
+	c.keep_aspect = _cam.keep_aspect
+	c.cull_mask = _cam.cull_mask
+	c.environment = _cam.environment
+	c.attributes = _cam.attributes
+	var b: Basis = c.global_transform.basis
+	# Straight up or down DOS has no angles for (0x138b55) and keeps the last.
+	if dir.length_squared() > 1.0e-6 and absf(dir.normalized().y) < 0.999:
+		b = Basis.looking_at(dir.normalized(), Vector3.UP)
+	c.global_transform = Transform3D(b,
+		_rocket_followed.global_position + b.z * ROCKET_EYE_BACK + b.y * ROCKET_EYE_UP)
 
 ## How much of the window bottom the HUD bar takes — the scene knows the
 ## panel's scaled height.

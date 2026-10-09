@@ -41,8 +41,10 @@ func _process(_delta: float) -> void:
 	if _player == null or not is_instance_valid(_player):
 		_player = get_tree().get_first_node_in_group("player")
 	var v: int = int(_player.get("vehicle")) if _player != null else 0
-	# A scripted view (the torpedo ride) draws no reticle.
-	visible = _player == null or _player.get("ride_view") != true
+	# A scripted view (the torpedo ride) draws no reticle, nor does the
+	# rocket's eye (DOS skips the aim image while 0x400000 is set).
+	visible = _player == null or (_player.get("ride_view") != true
+		and _player.get("rocket_view") != true)
 	if v != _veh:
 		_veh = v
 		queue_redraw()

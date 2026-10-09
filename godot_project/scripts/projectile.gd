@@ -322,7 +322,10 @@ func _physics_process(delta: float) -> void:
 		return
 	if _mi != null and not _mi.visible:
 		var cam := get_viewport().get_camera_3d()
-		if cam == null or cam.global_position.distance_to(global_position) > NEAR_CLIP:
+		# The rocket's eye (fly_camera.rocket_view) rides 120 u behind it
+		# and is meant to see it.
+		if cam == null or cam.global_position.distance_to(global_position) > NEAR_CLIP \
+				or cam.has_meta(&"rocket_eye"):
 			_mi.visible = true
 			for c in get_children():
 				if c is MeshInstance3D:
