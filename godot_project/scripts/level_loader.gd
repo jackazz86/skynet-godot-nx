@@ -724,6 +724,14 @@ func load_zone(map_name: String, origin: Vector3, baked_root: Node = null,
 				emi.max_health = float(ENEMY_HP[et])
 			emi.set_meta("marker_off", e.file_off)
 			level.enemy_marker_offs.append(e.file_off)
+			# The act the marker hands its actor: sub+4 (read as
+			# exit_marker_id) with sub+5's state bits (FUN_0012a439).
+			# A spawn sprite's robot has none (0x12a4f0 sets no act).
+			if not spawn and e.exit_marker_id > 0 and (e.state_byte & 4) != 0:
+				emi.death_act = e.exit_marker_id
+				emi.death_state = e.state_byte
+				if level.behaviour != null:
+					emi.death_act_fired.connect(level.behaviour.enemy_act)
 			emi.fire_interval = st[1]
 			emi.move_speed = st[2]
 			# DOS type data (state id, speed, turn, fire params, script,

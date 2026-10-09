@@ -423,6 +423,27 @@ var _on_path: bool = false
 ## to an actor below 1 HP: the pick-up HK cannot be shot down.
 var indestructible: bool = false
 
+## The act the start marker hands this actor, and when it fires. DOS
+## EnemiesStartMarked (FUN_0012a439) copies marker sub+4 into the actor
+## record's act byte (link record +9) and ORs marker sub+5 into its state
+## byte; ObjHit then runs the act like any record's: state bit 2 (0x04)
+## when the hit takes the last hit point. MAP.060's thirteen camp
+## defences carry act 0x26 this way — [M1] has thirteen entries, twelve
+## of them blank, and the last kill prints "Camp defenses destroyed".
+## `death_act` 0 = none.
+var death_act: int = 0
+var death_state: int = 0
+## Emitted once, as the machine is destroyed, when its state byte says
+## the act fires on destruction (bit 2) and it has one.
+signal death_act_fired(act: int, marker_off: int)
+
+func _fire_death_act() -> void:
+	if death_act <= 0 or death_act >= 0xFE or (death_state & 4) == 0:
+		return
+	var act: int = death_act
+	death_act = 0xFF                        # the handler retires the record
+	death_act_fired.emit(act, int(get_meta("marker_off", -1)))
+
 func make_path_vehicle() -> void:
 	_on_path = true
 	_init_done = true
@@ -1423,6 +1444,7 @@ func _detonate_trap() -> void:
 	if _state == State.DEAD:
 		return
 	_state = State.DEAD
+	_fire_death_act()
 	var centre := global_position + Vector3(0.0, _body_height * 0.5, 0.0)
 	Audio.play_id_3d(DEATH_SOUND_ID, centre, -2.0)
 	Audio.play_sfx_3d("EXPLO1.RAW", centre, -2.0)
@@ -1439,6 +1461,7 @@ func _die() -> void:
 	if _state == State.DEAD:
 		return
 	_state = State.DEAD
+	_fire_death_act()
 	if not Net.active:
 		Stats.kill()
 	if _engine != null:

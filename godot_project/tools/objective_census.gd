@@ -40,9 +40,16 @@ static func run(list: String) -> void:
 			if map == null:
 				continue
 			for e in map.entities:
-				if e.marker_type >= 0:
-					continue
+				# DOS (FUN_00139e98) skips ENEMY markers only: their sub+10
+				# is the enemy type. Every other variant-3 entity, marker or
+				# sprite, dispatches its act byte.
 				var a: int = e.link_act_type
+				if e.marker_type == 2:
+					# ...but the actor takes sub+4 as its act, run when it
+					# is destroyed (state bit 2; FUN_0012a439).
+					if (e.state_byte & 4) == 0:
+						continue
+					a = e.exit_marker_id
 				if a >= 0x26 and a <= 0x2A:
 					acts[a - 0x26] += 1
 					where.append("%d@%05x:M%d" % [m, e.file_off, a - 0x25])

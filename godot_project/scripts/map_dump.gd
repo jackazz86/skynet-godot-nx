@@ -110,7 +110,7 @@ func _ready() -> void:
 		var bb := BSAReader.new()
 		if bb.open(SkynetPaths.gamedata_path("MDMDBRIF.BSA"), SkynetPaths.variant):
 			for sfx in String(cli["brief"]).split(","):
-				var raw := bb.read("%d.TXT" % int(sfx))
+				var raw := bb.read("%03d.TXT" % int(sfx))
 				print("===== %s.TXT (%d bytes) =====" % [sfx, raw.size()])
 				print(raw.get_string_from_ascii())
 			bb.close()
@@ -495,6 +495,10 @@ static func dump_links(spec: String) -> void:
 			var extra := ""
 			if e.link_act_type == 0xF0:
 				extra = " -> map %d set %d" % [e.exit_map, e.exit_marker_id]
+			if e.marker_type == 2:
+				# An enemy marker: sub+10 is the enemy TYPE; the act its
+				# actor carries is sub+4 (FUN_0012a439).
+				extra = " enemy type %d, death act=%02x" % [e.enemy_type, e.exit_marker_id]
 			print("  @%05x %-14s v%d (%6d,%6d,%6d) st=%02x act=%02x hp=%d next=%05x%s%s"
 				% [e.file_off, label, v, e.x, -e.y, -e.z, e.state_byte, e.link_act_type,
 					e.hp, maxi(e.link_next, 0), extra, "  <head" if not targets.has(e.file_off) and e.link_next > 0 else ""])

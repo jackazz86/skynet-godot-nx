@@ -79,10 +79,18 @@ static func _numbered(text: String, prefix: String, count: int) -> Array:
 ## one of its section — v1.01 handler 0x137fd0 steps a text pointer past
 ## the one it showed. MAP.232's nine consoles are nine entries of [M1];
 ## counting sections ended mission 4 at the second display.
+##
+## A BLANK entry counts too: the DOS parser (0x12ce73 in v1.01) bumps the
+## counter for every "####"-terminated entry, text or not, and the
+## handler only types a line longer than two characters. Future Shock's
+## 060.TXT gives [M1] twelve blank entries and then "Camp defenses
+## destroyed" — one per camp defence (thirteen robots carry act 0x26), so
+## the line shows at the last kill. Dropping the blanks left the port
+## with two objectives, and the first kill would have been the last.
 static func _sections(text: String, prefix: String, count: int) -> Array:
 	var out: Array = []
 	for i in count:
-		out.append(_entries(text, "[%s%d]" % [prefix, i + 1]))
+		out.append(_entries(text, "[%s%d]" % [prefix, i + 1], true))
 	return out
 
 ## The [TA] section lists one asset name per line (tachkftr, tacscout …)
@@ -98,7 +106,7 @@ static func _words(text: String, header: String) -> Array:
 
 ## Entries of one section: text between the header and "%%%%", split on
 ## "####", bracketed tag lines dropped.
-static func _entries(text: String, header: String) -> Array:
+static func _entries(text: String, header: String, keep_blank: bool = false) -> Array:
 	var out: Array = []
 	var inside: bool = false
 	var buf: Array[String] = []
@@ -111,7 +119,7 @@ static func _entries(text: String, header: String) -> Array:
 		if line.begins_with("%%%%"):
 			break
 		if line == "####":
-			if not buf.is_empty():
+			if not buf.is_empty() or keep_blank:
 				out.append(" ".join(buf))
 				buf.clear()
 			continue

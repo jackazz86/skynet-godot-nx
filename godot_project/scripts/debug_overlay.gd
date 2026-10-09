@@ -317,6 +317,30 @@ func _find_target() -> void:
 	# On this map: the nearest live source.
 	var best: Dictionary = {}
 	var best_d: float = INF
+	# Robots whose destruction raises a pending objective (the act their
+	# start marker hands them, enemy.gd death_act): the nearest one, and
+	# how many are still standing per section.
+	var robots: Dictionary = {}                 # section → live count
+	for e in lvl.enemies.get_children() if lvl.get("enemies") != null else []:
+		if not (e is Node3D) or not ("death_act" in e) or e.is_queued_for_deletion():
+			continue
+		if e.has_method("is_dead") and e.is_dead():
+			continue
+		var idx: int = int(e.get("death_act")) - 0x26
+		if idx < 0 or idx > 4 or not pending.has(idx) or (int(e.get("death_state")) & 4) == 0:
+			continue
+		robots[idx] = int(robots.get(idx, 0)) + 1
+		var dr: float = me.distance_to((e as Node3D).global_position)
+		if dr < best_d:
+			best_d = dr
+			best = {"pos": (e as Node3D).global_position, "idx": idx,
+				"text": "[M%d] <- destroy %s @%05x" % [idx + 1, String(e.name),
+					int(e.get_meta("marker_off", 0))]}
+	if not best.is_empty():
+		var counts: Array = []
+		for i in robots:
+			counts.append("[M%d] %d" % [int(i) + 1, int(robots[i])])
+		_target_note = "robots left whose destruction counts: %s" % ", ".join(counts)
 	for s in _sources(here, pending):
 		var w: Vector3 = _dos_to_world(s["pos"], origin)
 		var d: float = me.distance_to(w)

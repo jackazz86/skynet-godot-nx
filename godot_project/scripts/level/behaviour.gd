@@ -1361,6 +1361,35 @@ func _on_cue_fired(index: int, n: Node) -> void:
 	else:
 		hint_message.emit(index)
 
+## A destroyed robot's own act (enemy.gd `death_act_fired`): DOS hands an
+## enemy marker's sub+4 to its actor as the act byte, and ObjHit runs it
+## through the same handler table as a map record's. The message and
+## objective handlers are the ones that matter (MAP.060's camp defences
+## count down [M1]); they print, count and retire exactly as a record's
+## node does (0x137fd0 / 0x137f9d).
+func enemy_act(act: int, marker_off: int) -> void:
+	if act >= ACT_OBJ_FIRST and act <= ACT_OBJ_FIRST + 4:
+		if bus != null:
+			bus.announce_fire(marker_off, "objective")
+			bus.announce_effect(marker_off, "objective", {"index": act - ACT_OBJ_FIRST})
+		Audio.play_id(0x51, -4.0)                # FUN_0012f53d confirms
+		objective_complete.emit(act - ACT_OBJ_FIRST)
+	elif act >= ACT_HINT_FIRST and act < ACT_OBJ_FIRST:
+		if bus != null:
+			bus.announce_fire(marker_off, "hint")
+			bus.announce_effect(marker_off, "hint", {"index": act - ACT_HINT_FIRST})
+		hint_message.emit(act - ACT_HINT_FIRST)
+	elif act == ACT_OBJ_FIRST + 5:
+		if bus != null:
+			bus.announce_fire(marker_off, "fail")
+			bus.announce_effect(marker_off, "fail", {})
+		mission_failed.emit()
+	else:
+		print("[behaviour] robot @%05x died with act %02X — not a message or objective, not run" % [marker_off, act])
+
+const ACT_HINT_FIRST: int = 0x1C
+const ACT_OBJ_FIRST: int = 0x26
+
 ## After the runtime took a state overlay: a cue whose act byte came back
 ## as 0xFF fired before this visit and must not count again, so its
 ## node's own guard goes back up with it (an objective whose `spent` came
