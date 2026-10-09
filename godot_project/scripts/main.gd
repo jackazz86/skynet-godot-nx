@@ -29,6 +29,7 @@ const CamPath     := preload("res://scripts/cam_path.gd")
 const PauseState  := preload("res://scripts/pause_state.gd")
 const HudPanel    := preload("res://scripts/hud_panel.gd")
 const HudModern   := preload("res://scripts/hud_modern.gd")
+const MessageBox  := preload("res://scripts/message_box.gd")
 const EffectWarmup := preload("res://scripts/effect_warmup.gd")
 const StatsLib := preload("res://scripts/stats.gd")
 const ZoneLayers := preload("res://scripts/mission/zone_layers.gd")
@@ -108,6 +109,9 @@ var _hud_font: FontFile = null         # FONT0003.FNT — HUD read-outs
 ## FONT0005).
 var _status_font: FontFile = null
 var _msg_scale: int = -1
+## The panel's message window (scripts/message_box.gd): hints, objectives
+## and the border hint are typed there, not on the status line.
+var _msg_box = null
 var _game_over: CanvasLayer = null
 var _mission_hostiles: int = 0
 var _mission_done: bool = false
@@ -2287,6 +2291,7 @@ func _process(delta: float) -> void:
 			_set_hud_mode(player.vehicle)
 		if _hud_mode != 0:
 			_update_vehicle_hud()
+		_tick_box(delta)
 		# The bar reads the soldier off this — it writes only what moved.
 		_hud.call("refresh", {
 			"health": player.health, "max_health": player.max_health,
@@ -2931,7 +2936,10 @@ func _on_objective_complete(idx: int) -> void:
 	if _current_level != null and _current_level.behaviour != null:
 		_current_level.behaviour.objectives_left = _objectives_left
 	print("[skynet] objective %d done, %d left" % [idx + 1, _objectives_left])
-	_set_status(text if not text.is_empty() else "OBJECTIVE COMPLETE.", 6.0)
+	# DOS types it in the panel's message window only for a text longer
+	# than 2 characters (0x137fd0); the counter drops either way.
+	if text.length() > 2:
+		_box_message(text, false)
 	_finish_mission_if_done(2.5)
 
 ## The mission's counter has run out: MISSION COMPLETE, once per mission,
@@ -2974,7 +2982,28 @@ func _on_hint_message(idx: int) -> void:
 	if idx >= 0 and idx < _mission_hints.size():
 		var t: String = String(_mission_hints[idx])
 		if not t.is_empty():
-			_set_status(t, 6.0)
+			_box_message(t)
+
+## FUN_0012fa3d: a hint or an objective line goes to the panel's message
+## window — the box clears, sound 0x51, the typewriter starts.
+## `sound` false for an objective: the behaviour runtime already played
+## its 0x51 when the cue fired.
+func _box_message(text: String, sound: bool = true) -> void:
+	if _msg_box == null:
+		return
+	_msg_box.start(text)
+	if sound:
+		Audio.play_id(0x51, -4.0)
+	_push_box_lines()
+
+## Type the message window on (main loop, once per frame like FUN_0012f77a).
+func _tick_box(delta: float) -> void:
+	if _msg_box != null and _msg_box.tick(delta):
+		_push_box_lines()
+
+func _push_box_lines() -> void:
+	if _hud != null and _msg_box != null and _hud.has_method("set_message_lines"):
+		_hud.call("set_message_lines", _msg_box.lines())
 
 ## Act 0x2B: the mission is lost.
 func _on_mission_failed() -> void:
@@ -3135,6 +3164,9 @@ func _change_level(map_name: String, fade_out: bool, briefing: bool, saved: Dict
 	# _clear_level snapshots the live map into _map_state — BEFORE a save's
 	# overlay replaces that dictionary.
 	_clear_level()
+	if _msg_box != null:
+		_msg_box.clear()                # every map load empties it (FUN_0012f745)
+		_push_box_lines()
 	_map_idx = idx
 	if not saved.is_empty():
 		_install_save(saved)
@@ -5528,6 +5560,7 @@ const HELP_TEXT := """[b]commands[/b]
   god [on|off] · noclip [on|off] · give <all|super|slot|name> · ammo
   health [n] · armor [0-100] · speed [x] · nextlevel · win · enemies
   use (action key) · objectives (what the mission still wants)
+  hint <1-9|text> [now] (panel message window) · hud dos|modern
   music [0-100|off|t200|title] · save [slot] · load [slot] · menu · quit
   where (position, view and what the level costs) · bake [all]
   zone · zones [show|all|hide] (the mission scene's zones, when one is up)"""
@@ -5934,6 +5967,32 @@ func run_command(line: String) -> String:
 				return "no player"
 			_on_use_pressed(p.global_position)
 			return "use at %s" % p.global_position
+		"hint":
+			# `hint <1-9|text…> [now]`: a [G n] line, or any text, in the
+			# panel's message window; `now` types it out at once (shots).
+			if args.is_empty() or _msg_box == null:
+				return "usage: hint <1-9|text> [now]"
+			var now: bool = args[args.size() - 1].to_lower() == "now"
+			var words: PackedStringArray = args.slice(0, args.size() - 1) if now else args
+			if words.size() == 1 and words[0].is_valid_int():
+				var gi: int = int(words[0]) - 1
+				if gi < 0 or gi >= _mission_hints.size() or String(_mission_hints[gi]).is_empty():
+					return "no [G%s] in this mission" % words[0]
+				_on_hint_message(gi)
+			else:
+				_box_message(" ".join(words))
+			if now:
+				_msg_box.finish()
+				_push_box_lines()
+			return "\n".join(_msg_box.lines())
+		"hud":
+			# `hud dos|modern`: switch the HUD bar for this run only — the
+			# HI-RES ART setting itself is not saved.
+			if args.is_empty() or not (args[0].to_lower() in ["dos", "modern"]):
+				return "usage: hud dos|modern"
+			Settings.hires_weapons = args[0].to_lower() == "modern"
+			_on_hires_changed()
+			return "hud %s" % args[0].to_lower()
 		"objectives", "obj":
 			var todo: Array = []
 			for i in _mission_texts.size():
@@ -6254,6 +6313,7 @@ func _build_status_ui() -> void:
 	# read-out Label below.
 	_hud_font = _load_fnt("FONT0003.FNT", 3)
 	_status_font = _load_fnt("FONT0005.FNT", 2)
+	_msg_box = MessageBox.new(SkynetPaths.read_bytes(SkynetPaths.front_path("FONT0004.FNT")))
 
 	var canvas := CanvasLayer.new()
 	canvas.layer = 50
@@ -6304,6 +6364,7 @@ func _build_hud() -> void:
 	else:
 		_hud = HudModern.new()
 	_hud_layer.add_child(_hud)
+	_push_box_lines()
 	# A vehicle's own panel (none today) would hide the bar.
 	_hud.visible = _hud_mode == 0 or String(VEH_PANELS[clampi(_hud_mode, 0, VEH_PANELS.size() - 1)]).is_empty()
 	_layout_hud()

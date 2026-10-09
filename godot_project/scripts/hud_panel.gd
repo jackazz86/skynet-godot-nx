@@ -19,8 +19,10 @@
 ##     for armour — the hull in a vehicle — cut at round(41 x v) px, at
 ##     least one while v > 0, the rest flat 0x7A (FUN_0013249c).
 ##
-## No number for the health, no weapon name, nothing in the right-hand
-## recess: DOS paints it 0x7A and never draws there. In a vehicle the same
+## No number for the health, no weapon name. The right-hand recess is the
+## message window (FUN_0012fcf5, v1.01): the hints and objectives typed in
+## FONT0004, palette 0xB7, five lines from (219,4) of the bar, 6 px apart
+## (scripts/message_box.gd keeps the text). In a vehicle the same
 ## panel stays, the vehicle's records 20-25 supply the icons and pools.
 ## With the HI-RES ART setting every image comes from MDMDHRES.BSA (2x wide,
 ## 2.4x tall — DOS only moves the origin, the bigger art does the rest);
@@ -63,6 +65,7 @@ var _font_scale: int = 0
 var _font_bytes: PackedByteArray = PackedByteArray()
 var _compass: Control = null
 var _state: Dictionary = {}
+var _msg_lines: PackedStringArray = PackedStringArray()
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -138,6 +141,24 @@ func _draw() -> void:
 	var max_hp: float = maxf(float(_state.get("max_health", 100.0)), 1.0)
 	_gauge(clampf(float(_state.get("health", 0.0)) / max_hp, 0.0, 1.0), 172.0, 25.0, sc)
 	_gauge(clampf(float(_state.get("armor", 0.0)), 0.0, 1.0), 172.0, 9.0, sc)
+	_draw_messages(sc)
+
+## The message window's lines (main.gd, from message_box.gd), top first.
+func set_message_lines(lines: PackedStringArray) -> void:
+	_msg_lines = lines.duplicate()
+	queue_redraw()
+
+## The typed lines in the recess: x 219, y 164 - 160 + 6 per line.
+func _draw_messages(sc: float) -> void:
+	if _msg_lines.is_empty():
+		return
+	var f: FontFile = _digit_font(sc)
+	if f == null:
+		return
+	var sz: int = f.fixed_size
+	for i in _msg_lines.size():
+		draw_string(f, Vector2(219.0 * sc, (4.0 + 6.0 * i) * sc + sz), _msg_lines[i],
+			HORIZONTAL_ALIGNMENT_LEFT, 98.0 * sc, sz, AMMO_COLOR)
 
 ## `tex` into the DOS rect (x, y, w, h) of the panel.
 func _blit(tex: Texture2D, x: float, y: float, w: float, h: float, sc: float) -> void:

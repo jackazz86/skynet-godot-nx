@@ -7,7 +7,10 @@
 ## there is a dose to show), under them the weapon and the thrown item
 ## side by side with their own PICKUP SPRITES as icons and the counts by
 ## them; a compass strip along the bottom centre with the map's north
-## (marker type 7, the DOS compass offset) under a lubber line. It first
+## (marker type 7, the DOS compass offset) under a lubber line; in the
+## bottom-right the message window — DOS's panel recess, where the hints
+## and objectives are typed (scripts/message_box.gd: same lines, same
+## wrap, same five-line scroll, kept until the next one). It first
 ## shipped as the ENHANCED status bar (2026-09-04/05, after three rounds
 ## of "it looks like a child drew it with felt-tips") and went with that
 ## renderer on 2026-09-11; back by request on 2026-09-15.
@@ -24,6 +27,10 @@ const TINT := Color(0.62, 0.94, 0.70)
 const PLATE_WIDTH: float = 300.0
 const COMPASS_SPAN: float = 110.0        # degrees across the strip
 const COMPASS_SIZE := Vector2(430.0, 24.0)
+## The message window's width: DOS's 98 px wrap of FONT0004 is at most
+## ~20 capitals, which this holds in the 15 px HUD type; the height follows
+## the lines typed (up to the five DOS shows).
+const MSG_SIZE := Vector2(220.0, 0.0)
 ## Ammo pool -> the sprite of the thrown item that draws from it.
 const THROW_SPRITES: Dictionary = {
 	5: 25728, 6: 25605, 2: 25607, 8: 25603, 9: 25604,
@@ -41,6 +48,8 @@ var _weapon_label: Label = null
 var _second_icon: TextureRect = null
 var _second_label: Label = null
 var _strip: Control = null
+var _msg_panel: PanelContainer = null
+var _msg_label: Label = null
 ## Weapon slot -> the pickup sprite that grants it (built from the DOS
 ## item table, so the icon is always the thing you picked up).
 var _weapon_sprites: Dictionary = {}
@@ -123,6 +132,45 @@ func _ready() -> void:
 	_strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_strip.draw.connect(_draw_strip)
 	add_child(_strip)
+
+	# --- message window, bottom right (DOS: the panel's right recess) ---
+	_msg_panel = PanelContainer.new()
+	_msg_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var mb := StyleBoxFlat.new()
+	mb.bg_color = Color(0.02, 0.03, 0.04, 0.42)          # the compass strip's
+	mb.set_border_width_all(1)
+	mb.border_color = Color(TINT.r, TINT.g, TINT.b, 0.18)
+	mb.content_margin_left = 10.0
+	mb.content_margin_right = 10.0
+	mb.content_margin_top = 6.0
+	mb.content_margin_bottom = 6.0
+	_msg_panel.add_theme_stylebox_override("panel", mb)
+	_msg_panel.anchor_left = 1.0
+	_msg_panel.anchor_right = 1.0
+	_msg_panel.anchor_top = 1.0
+	_msg_panel.anchor_bottom = 1.0
+	_msg_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_msg_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_msg_panel.offset_left = -MARGIN - MSG_SIZE.x
+	_msg_panel.offset_right = -MARGIN
+	_msg_panel.offset_top = -MARGIN     # grows up to the lines it holds
+	_msg_panel.offset_bottom = -MARGIN
+	_msg_panel.visible = false
+	add_child(_msg_panel)
+	_msg_label = _label(_msg_panel, HORIZONTAL_ALIGNMENT_LEFT, 15, 1.0)
+	_msg_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	_msg_label.clip_text = true
+	_msg_label.add_theme_constant_override("line_spacing", 1)
+
+## The message window's lines (main.gd, from message_box.gd), top first.
+## The box shows only while it has text: an empty DOS recess is part of
+## the panel, an empty frame here would only cover the view.
+func set_message_lines(lines: PackedStringArray) -> void:
+	if _msg_label == null:
+		return
+	var text: String = "\n".join(lines)
+	_msg_label.text = text
+	_msg_panel.visible = not text.strip_edges().is_empty()
 
 ## Nothing of the view is covered.
 func hud_height() -> float:
