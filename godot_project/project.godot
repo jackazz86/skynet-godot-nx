@@ -28,6 +28,7 @@ Settings="*res://scripts/settings.gd"
 Stats="*res://scripts/stats.gd"
 SceneSwitcher="*res://scripts/scene_switcher.gd"
 Controls="*res://scripts/controls.gd"
+Gamepad="*res://scripts/gamepad.gd"
 Audio="*res://scripts/audio.gd"
 Assets="*res://scripts/asset_cache.gd"
 Net="*res://scripts/net/net_game.gd"
@@ -52,3 +53,7 @@ textures/canvas_textures/default_texture_filter=0
 renderer/rendering_method.mobile="gl_compatibility"
 textures/vram_compression/import_etc2_astc=true
 environment/defaults/default_environment="res://scenes/default_env.tres"
+
+[input_devices]
+
+sensors/enable_gyroscope=true

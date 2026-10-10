@@ -23,9 +23,17 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_cam = get_tree().get_first_node_in_group("player")
-	visible = OS.has_feature("mobile") or DisplayServer.is_touchscreen_available()
+	_update_visibility()
+	Gamepad.active_changed.connect(func(_on: bool) -> void: _update_visibility())
 	resized.connect(_layout)
 	_layout()
+
+## The on-screen pads give way to a game controller (gamepad.gd drives the
+## player then) and come back when it is unplugged.
+func _update_visibility() -> void:
+	visible = (OS.has_feature("mobile") or DisplayServer.is_touchscreen_available()) \
+		and not Gamepad.is_active()
+	_fingers.clear()
 
 func _layout() -> void:
 	_rects.clear()
