@@ -13,7 +13,7 @@
 ##   R / L        next / previous weapon (also D-pad right / left)
 ##   B            jump (hold)         Y             crouch / sink (hold)
 ##   A            use / open          X             next thrown item (also D-pad up)
-##   L3           run (hold)          R3 (click)    gyro on / off
+##   L3 (click)   run on / off        R3 (click)    gyro on / off
 ##   -            automap             +             menu (Esc)
 ##   D-pad down   centre the view
 ## The gyro on/off choice is remembered in user://gamepad.cfg.
@@ -41,13 +41,14 @@ var _cursor: Control = null
 var _pos: Vector2 = Vector2(640.0, 360.0)
 var _flash: float = 0.0
 var _held_click: bool = false
-var _prev_zl: bool = false
 var _prev_zr: bool = false
 var _was_in_game: bool = false
 var _poll: float = 0.0
 
 const CFG_PATH: String = "user://gamepad.cfg"
 var _gyro_on: bool = true
+var _prev_zl: bool = false
+var _run_on: bool = false
 var _toast: Label = null
 var _toast_t: float = 0.0
 
@@ -151,7 +152,8 @@ func _game_axes(p: Node) -> void:
 	if Input.is_joy_button_pressed(_device, JOY_BUTTON_Y):
 		vert -= 1.0
 	p.set("ui_vert", vert)
-	p.set("ui_sprint", Input.is_joy_button_pressed(_device, JOY_BUTTON_LEFT_STICK))
+	# L3 (a click of the left stick) toggles running; ZL throws.
+	p.set("ui_sprint", _run_on)
 	if Input.get_joy_axis(_device, JOY_AXIS_TRIGGER_RIGHT) > TRIGGER_ON:
 		p.set("ui_fire", true)
 	var zl: bool = Input.get_joy_axis(_device, JOY_AXIS_TRIGGER_LEFT) > TRIGGER_ON
@@ -245,6 +247,11 @@ func _input(event: InputEvent) -> void:
 			JOY_BUTTON_LEFT_SHOULDER, JOY_BUTTON_DPAD_LEFT:
 				if not locked:
 					_weapon_step(p, -1)
+			JOY_BUTTON_LEFT_STICK:
+				_run_on = not _run_on
+				_toast.text = "RUN ON" if _run_on else "RUN OFF"
+				_toast.visible = true
+				_toast_t = 1.0
 			JOY_BUTTON_RIGHT_STICK:
 				_set_gyro(not _gyro_on)
 		get_viewport().set_input_as_handled()
