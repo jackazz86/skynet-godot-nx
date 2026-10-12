@@ -130,7 +130,9 @@ func setup(at: Vector3, radius: float,
 	global_position = at
 	_t = 0.0
 	_idx = 0
-	_radius = maxf(radius, 60.0)
+	# Bullet sparks (bank 365) are small by nature; every other effect keeps
+	# the 60 u floor.
+	_radius = maxf(radius, 10.0 if archive_id == 365 else 60.0)
 	# A shot that lands ON the player detonates at the camera, where any
 	# billboard covers the whole screen — "when a robot hits me it blocks
 	# the entire view" (2026-09-04). Cap the effect's apparent size by

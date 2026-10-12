@@ -15,9 +15,28 @@ const Explosion := preload("res://scripts/explosion.gd")
 const ANIM_FPS: float = 14.0
 const BANK: int = 237
 
+static var _grey: Array = []
+
 ## Every frame of the smoke bank, converted once (Explosion.bank_frames).
+## The bank's palette indices are yellow, but DOS shows grey smoke here (the
+## shotgun's puff is a grey wisp), so each frame is desaturated to a
+## semi-transparent grey once.
 static func frames() -> Array:
-	return Explosion.bank_frames(BANK, 0)
+	if not _grey.is_empty():
+		return _grey
+	for f in Explosion.bank_frames(BANK, 0):
+		var img: Image = (f as Texture2D).get_image()
+		if img == null:
+			continue
+		img.convert(Image.FORMAT_RGBA8)
+		for y in img.get_height():
+			for x in img.get_width():
+				var c: Color = img.get_pixel(x, y)
+				if c.a > 0.0:
+					var l: float = 0.34 + 0.22 * c.get_luminance()
+					img.set_pixel(x, y, Color(l, l, l * 1.04, 0.55))
+		_grey.append(ImageTexture.create_from_image(img))
+	return _grey
 
 var _sprite: Sprite3D = null
 var _frames_local: Array = []
@@ -35,7 +54,7 @@ func setup(at: Vector3, size: float = 160.0) -> void:
 	_sprite.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	_sprite.shaded = false
 	_sprite.transparent = true
-	_sprite.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD
+	_sprite.alpha_cut = SpriteBase3D.ALPHA_CUT_DISABLED
 	_sprite.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	var max_dim: int = 1
 	for f in _frames_local:
