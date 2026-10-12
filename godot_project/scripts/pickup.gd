@@ -67,9 +67,8 @@ func _exit_tree() -> void:
 func _physics_process(delta: float) -> void:
 	if not _all.is_empty() and _all[0] == self:
 		_ward(delta)
-	# Gentle hover so pickups read as interactive, not scenery.
-	_bob_t += delta
-	position.y = _base_y + sin(_bob_t * 3.0) * 14.0
+	# DOS pickups stand still on the ground; the port used to bob them by 14 u,
+	# which read as floating and also overwrote the height _settle_sprites set.
 
 	if _player == null or not is_instance_valid(_player):
 		_player = get_tree().get_first_node_in_group("player")
