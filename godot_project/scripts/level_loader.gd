@@ -35,7 +35,7 @@ const Explosion    := preload("res://scripts/explosion.gd")
 ## DOS draws a flat at texture_dims × a perspective scale (skynet_gh.c
 ## FUN_0014f4xx: `tex_w * puVar1[0x11]`); the texture dimensions already
 ## carry each prop's relative size, so a single world-scale suffices.
-const SPRITE_PIXEL_SIZE: float = 2.0
+const SPRITE_PIXEL_SIZE: float = 1.0
 ## Collectibles are drawn at the DOS renderer's own 1:1 scale.
 ##
 ## FUN_0014f208 hands the blitter `record.width * scale`, where `scale`
@@ -53,6 +53,9 @@ const PICKUP_PIXEL_SIZE: float = 1.0
 static func pixel_scale_for(sprite_index: int) -> float:
 	return PICKUP_PIXEL_SIZE if PickupData.ITEMS.has(sprite_index) 		else SPRITE_PIXEL_SIZE
 const INDOOR_SPRITE_LIFT: float = 16.0
+## How far above the terrain an outdoor sprite record must sit to be taken
+## for standing on a platform rather than on the ground.
+const OUTDOOR_PLATFORM_MIN: float = 80.0
 
 ## Enemy-type ID → mesh base name (no extension). Extracted from the
 ## static enemy table at Skynet.exe virtual 0x44d00 (record stride 0x1C,
@@ -1286,9 +1289,22 @@ static func _build_sprites(level: Level, _palette: PackedColorArray) -> void:
 		# the enemy markers carry; a 2026-09-03 probe measured 13–26 u), so
 		# the billboard's foot goes down to the floor.
 		var base_y: float = -float(e.y) - INDOOR_SPRITE_LIFT
+		var elevated: bool = false
+		var terrain_y: float = 0.0
 		if level.is_outdoor and level.wld != null:
 			base_y = WldTerrain.height_at_world(
 				level.wld, float(e.x), float(e.z))
+			# An outdoor map also has floors above the ground (a stair top, a
+			# platform inside a building). A record whose own height is far
+			# above the terrain stands on one of those: the ammo at the top of
+			# MAP.210's first stairs was drawn 230-450 u down in the rock
+			# (still collectible, never seen). Ordinary scenery records sit
+			# within ~50 u of the ground and keep the terrain height.
+			var rec_y: float = -float(e.y) - INDOOR_SPRITE_LIFT
+			if rec_y > base_y + OUTDOOR_PLATFORM_MIN:
+				terrain_y = base_y
+				base_y = rec_y
+				elevated = true
 
 		# Sprites listed in the DOS item table become collectible nodes
 		# (FUN_0011d600 gives them act 0xFD at map start); the rest are
@@ -1300,8 +1316,8 @@ static func _build_sprites(level: Level, _palette: PackedColorArray) -> void:
 			p.set_meta("pickup_off", e.file_off)
 			level.pickup_offs.append(e.file_off)
 			_style_sprite(p, tex, px)
-			p.position = Vector3(float(e.x), base_y + world_h * 0.5, -float(e.z))
-			p.set_meta("bottom_off", -world_h * 0.5)
+			p.position = Vector3(float(e.x), base_y, -float(e.z))
+			p.set_meta("bottom_off", 0.0)
 			spr = p
 			pickups += 1
 		else:
@@ -1327,8 +1343,11 @@ static func _build_sprites(level: Level, _palette: PackedColorArray) -> void:
 				spr = s3
 			if dos_fullbright(e.sprite_index):
 				spr.set_meta("fullbright", true)
-			spr.position = Vector3(float(e.x), base_y + world_h * 0.5, -float(e.z))
-			spr.set_meta("bottom_off", -world_h * 0.5)
+			spr.position = Vector3(float(e.x), base_y, -float(e.z))
+			spr.set_meta("bottom_off", 0.0)
+		if elevated:
+			spr.set_meta("elevated", true)
+			spr.set_meta("terrain_y", terrain_y)   # where it goes if no floor is found
 		level.sprites.add_child(spr)
 		placed += 1
 		# Looping ambient sound from the 0x4cc00 sprite→sound table
@@ -1447,7 +1466,13 @@ static func _style_sprite(spr: SpriteBase3D, tex: Texture2D, pixel_size: float =
 	if spr is Sprite3D:
 		(spr as Sprite3D).texture = tex
 	spr.pixel_size = pixel_size
-	spr.billboard = BaseMaterial3D.BILLBOARD_FIXED_Y
+	spr.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	# DOS draws a sprite as a screen-aligned bitmap standing on its ground
+	# point. Turn about the FEET (origin at the bottom of the drawing) and
+	# face the screen, or the picture swings about its middle and looks
+	# squashed, floating or sunk when the view tilts.
+	if tex != null:
+		spr.offset = Vector2(0.0, float(tex.get_height()) * 0.5)
 	spr.shaded = false
 	spr.double_sided = true
 	spr.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD
@@ -1518,7 +1543,7 @@ static func spawn_item(level: Level, pos: Vector3, si: int) -> Node3D:
 	if level.is_outdoor and level.wld != null:
 		ground = WldTerrain.height_at_world(level.wld, pos.x, -pos.z)
 	var world_h: float = float(tex.get_height()) * px
-	spr.position = Vector3(pos.x, ground + world_h * 0.5, pos.z)
+	spr.position = Vector3(pos.x, ground, pos.z)
 	level.sprites.add_child(spr)
 	if level.is_outdoor:
 		_limit_one(spr, spr.transform, 0.0)
