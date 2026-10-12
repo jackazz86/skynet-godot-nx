@@ -1588,8 +1588,9 @@ func _light_env(level: LevelLoader.Level) -> bool:
 ## from knee height finds the floor and the foot goes onto it, within a
 ## hand's span either way.
 const SETTLE_REACH: float = 60.0
+const SETTLE_REACH_OUTDOOR: float = 70.0
 func _settle_sprites(level: LevelLoader.Level) -> void:
-	if level == null or level.sprites == null or level.is_outdoor:
+	if level == null or level.sprites == null:
 		return
 	var space := get_world_3d().direct_space_state
 	if space == null:
@@ -1599,16 +1600,34 @@ func _settle_sprites(level: LevelLoader.Level) -> void:
 		if not (s is Node3D) or not s.has_meta("bottom_off"):
 			continue
 		var n: Node3D = s
+		var elev: bool = s.has_meta("elevated")
+		# Outdoors the sprites follow the terrain's own height, which is not
+		# quite the surface that is drawn: a short ray (so a roof or bridge
+		# above is never taken for the floor) snaps them onto it. A sprite on
+		# a platform above the ground (see level_loader) gets the full reach.
+		var reach: float = SETTLE_REACH if (elev or not level.is_outdoor) else SETTLE_REACH_OUTDOOR
 		var foot: float = n.global_position.y + float(n.get_meta("bottom_off"))
-		var from := Vector3(n.global_position.x, foot + SETTLE_REACH, n.global_position.z)
-		var q := PhysicsRayQueryParameters3D.create(from, from - Vector3(0.0, SETTLE_REACH * 2.0, 0.0))
+		var from := Vector3(n.global_position.x, foot + reach, n.global_position.z)
+		var q := PhysicsRayQueryParameters3D.create(from, from - Vector3(0.0, reach * 2.0, 0.0))
 		q.collision_mask = ZoneLayers.world_mask()
 		q.collide_with_areas = false
 		var hit := space.intersect_ray(q)
 		if not hit.has("position"):
+			# A record that claimed a platform with no floor under it hangs in
+			# the air: put it back on the ground.
+			if elev and s.has_meta("terrain_y"):
+				n.global_position.y = float(s.get_meta("terrain_y")) - float(n.get_meta("bottom_off"))
+				moved += 1
 			continue
+		# Outdoors a sprite on the ground only ever follows the TERRAIN: the
+		# ray must not take the roof of a car, a crate or a wall for the floor
+		# (a heap of skulls lying beside a jeep ended up on its bed).
+		if level.is_outdoor and not elev:
+			var col: Object = hit.get("collider")
+			if level.terrain == null or not (col is Node) 					or not (col == level.terrain or level.terrain.is_ancestor_of(col as Node)):
+				continue
 		var dy: float = float((hit["position"] as Vector3).y) + 0.5 - foot
-		if absf(dy) > 0.5 and absf(dy) <= SETTLE_REACH:
+		if absf(dy) > 0.5 and absf(dy) <= reach:
 			n.global_position.y += dy
 			moved += 1
 	if moved > 0:
