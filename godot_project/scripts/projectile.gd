@@ -411,7 +411,10 @@ func _is_target(n: Node) -> bool:
 func _deal(n: Node, dmg: float) -> void:
 	if _hits == "none":
 		return
-	if n.has_method("net_damage"):
+	# net_damage is the deathmatch report, in the port's own bar units. Outside a
+	# net game it falls straight into take_damage, so a DOS-point hit of 25 took
+	# 25 of a 100 bar (ten times too much); single player goes by DOS points.
+	if Net.active and n.has_method("net_damage"):
 		n.net_damage(dmg, _owner)
 	elif n.has_method("take_dos_damage"):
 		n.take_dos_damage(dmg)
