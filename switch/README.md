@@ -18,19 +18,21 @@ skynet-godot release.
 
 Tested on a Switch OLED, handheld: the engine boots on Vulkan (NVK), converts the
 original data, the menus work with a visible cursor, and the first mission plays
-with the controller and the gyro. Frame rate in play is roughly 35-55 fps.
+with the controller and the gyro. Frame rate in play is roughly 30-55 fps.
 
 Known problems:
 
-- **Small graphics problems.** Some sprites float or sink into the terrain, and
-  weapon impact marks are not visible. This looks the same with the GL
-  Compatibility renderer (`enable_vulkan 0`, which is also slower), so it is
-  probably the game's own placement code (`level_loader.gd`, sprite height) and
-  not the Switch renderer. Not investigated further.
-- **About two minutes to get into a mission.** Every cached file is verified
-  against a manifest with several `stat()` calls, and each one is slow on the SD
-  card. The first start also converts all the original data, which takes a long
-  time (about 20 minutes here).
+- **Getting into a mission takes about a minute.** Most of it is the Vulkan
+  shader compiler (Mesa NAK) running on the CPU. The wrapper raises the CPU boost
+  when the game announces a mission load (53 s on MAP.210 against 91-93 s before)
+  and drops it a few frames after. The pipeline cache is not saved between runs yet,
+  so every mission pays this again. The first start also converts all the original
+  data, which takes a long time (about 20 minutes here); starting a game also
+  checks every cached file against a manifest, which is slow on the SD card.
+- **Fidelity to the DOS version.** The graphics and gameplay fixes found by
+  comparing with DOS (sprite size and height, enemy damage, effects) are in the
+  game scripts of the `gamepad-support` branch; they are also offered upstream
+  as `dos-fidelity-fixes`. The enemies' rate of fire is not matched to DOS yet.
 - **Exit.** The game leaves through `svcExitProcess`; the console may show an
   error screen when you quit.
 - **Memory.** A use-after-free in how the engine drops condition variables used
@@ -98,7 +100,10 @@ gyro_debug 0         1 = log the raw gyro axes
 heapcheck 0          1 = diagnostic allocator (slower, more memory)
 ```
 
-Click R3 in the game to turn the gyro on or off.
+In the game: left stick move, right stick look (the gyro adds to it), ZR fire,
+ZL throw, R / L next / previous weapon, B jump, Y crouch, A use, X next thrown
+item, click L3 to turn running on and off, click R3 to turn the gyro on and off,
+- automap, + menu.
 
 ## Build
 

@@ -105,7 +105,8 @@ void tls_setup_guard(void) {
 
 // boost the CPU to 1785MHz while loading
 void cpu_boost(int on) {
-  appletSetCpuBoostMode(on ? ApmCpuBoostMode_FastLoad : ApmCpuBoostMode_Normal);
+  Result rc = appletSetCpuBoostMode(on ? ApmCpuBoostMode_FastLoad : ApmCpuBoostMode_Normal);
+  debugPrintf("[boost] %s -> rc=0x%x\n", on ? "on" : "off", (unsigned)rc);
 }
 
 int ret0(void) { return 0; }

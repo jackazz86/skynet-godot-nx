@@ -54,15 +54,16 @@ extern void  __stack_chk_fail(void);
 
 int __android_log_print(int prio, const char *tag, const char *fmt, ...) {
   (void)prio;
-#if DEBUG_LOG
   va_list list;
-  static char string[0x1000];
+  char string[0x800];
   va_start(list, fmt);
   vsnprintf(string, sizeof(string), fmt, list);
   va_end(list);
+  godot_log_watch(string);
+#if DEBUG_LOG
   debugPrintf("[%s] %s\n", tag ? tag : "", string);
 #else
-  (void)tag; (void)fmt;
+  (void)tag;
 #endif
   return 0;
 }

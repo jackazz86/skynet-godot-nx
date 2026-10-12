@@ -311,6 +311,20 @@ int truncate_fake(const char *path, int64_t len) {
 // No log filtering for SkyNET: keep every engine message while bringing it up.
 static int godot_log_drop(const char *msg) { (void)msg; return 0; }
 
+// Set when the game says it is about to load a mission (the line it prints
+// right after BEGIN). The mission load is one frame that blocks for over a
+// minute, so the main loop's "boost after a slow frame" comes far too late:
+// the CPU boost is raised here, before the load, and the loop is told so it
+// drops the boost again a few frames after the load ends.
+volatile int g_boost_request = 0;
+void godot_log_watch(const char *msg) {
+  if (msg && strstr(msg, "[skynet] loading ")) {
+    debugPrintf("[boost] mission load announced, boosting\n");
+    cpu_boost(1);
+    g_boost_request = 1;
+  }
+}
+
 // The game spams a few benign GDScript errors on every input event / frame
 // (e.g. input.gd's _is_paused access, and lighting/sound _process errors).
 // Writing each of those (plus its backtrace) to the SD card per event tanks
@@ -319,9 +333,10 @@ static int godot_log_drop(const char *msg) { (void)msg; return 0; }
 
 int __android_log_vprint_fake(int prio, const char *tag, const char *fmt, va_list va) {
   (void)prio;
-#if DEBUG_LOG
   char buf[0x800];
   vsnprintf(buf, sizeof(buf), fmt, va);
+  godot_log_watch(buf);
+#if DEBUG_LOG
   if (godot_log_drop(buf)) return 0;
   debugPrintf("[%s] %s\n", tag ? tag : "", buf);
 #else
@@ -332,6 +347,7 @@ int __android_log_vprint_fake(int prio, const char *tag, const char *fmt, va_lis
 
 int android_log_write_fake(int prio, const char *tag, const char *msg) {
   (void)prio;
+  godot_log_watch(msg);
 #if DEBUG_LOG
   if (godot_log_drop(msg)) return 0;
   debugPrintf("[%s] %s\n", tag ? tag : "", msg ? msg : "");

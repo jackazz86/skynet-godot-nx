@@ -1011,6 +1011,11 @@ static void game_thread_fn(void *arg) {
     // frame and >100 new asset opens keeps gameplay on the full GPU clock.
     const int opens_delta = g_asset_open_count - last_opens;
     last_opens = g_asset_open_count;
+    if (g_boost_request) { // a mission load was announced and boosted in the log hook
+      g_boost_request = 0;
+      boosted = 1;
+      calm_frames = 0;
+    }
     if (step_ms > 100 && opens_delta > 100) { // genuine big load stall: burst CPU
       calm_frames = 0;
       if (!boosted) { cpu_boost(1); boosted = 1; }

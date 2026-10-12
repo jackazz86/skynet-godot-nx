@@ -45,6 +45,8 @@ int      __cxa_thread_atexit_impl_fake(void (*dtor)(void *), void *obj, void *ds
 void     __FD_SET_chk_fake(int fd, void *set, size_t setsize);
 int      statvfs_fake(const char *path, void *buf);
 int      truncate_fake(const char *path, int64_t len);
+extern volatile int g_boost_request;
+void godot_log_watch(const char *msg);
 int      __android_log_vprint_fake(int prio, const char *tag, const char *fmt, va_list va);
 void     perror_fake(const char *s);
 int      isatty_fake(int fd);
