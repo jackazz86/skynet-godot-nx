@@ -70,6 +70,10 @@ const ZoneLayers := preload("res://scripts/mission/zone_layers.gd")
 ## How far ahead of the muzzle the player's own tracer starts, and how
 ## far it is allowed to reach.
 const TRACER_START: float = 420.0
+## DOS draws no streak for the player's own bullets (only the muzzle flash and
+## the hit); the port added one, and seen from the gun it reads as a big
+## yellow ribbon. Off by default; flip to bring it back.
+const PLAYER_TRACER: bool = false
 const TRACER_MAX: float = 2600.0
 
 @onready var _cam: Camera3D = $Camera3D
@@ -534,7 +538,7 @@ func set_spawn(pos: Vector3, yaw: float, reset_state: bool = true) -> void:
 	_water_primed = false
 	if reset_state:
 		health = max_health
-		armor = 0.0
+		armor = 1.0                        # DOS starts every life with the armour full
 		_net_env_dmg = 0.0                 # owed by the life that just ended
 		_reset_pools()
 		_reset_owned()
@@ -2140,19 +2144,22 @@ func _shoot(idx: int = -1) -> void:
 		var beam_to: Vector3 = beam_from
 		var reach: float = minf(beam_from.distance_to(endpoint), TRACER_MAX)
 		beam_to = beam_from + (endpoint - beam_from).normalized() * reach
-		if reach > 120.0:
+		if PLAYER_TRACER and reach > 120.0:
 			Tracer.spawn(fx_parent, beam_from, beam_to, Color(1.0, 0.86, 0.55, 0.5), 2.0)
 	# Shotgun: a puff of smoke lingering at the gun.
 	if kind == "shotgun":
 		var sm := SmokePuff.new()
 		fx_parent.add_child(sm)
-		sm.setup(at_gun + fwd * 30.0, 180.0)
+		sm.setup(at_gun + fwd * 30.0, 90.0)
 	if hit.has("collider"):
 		var n: Node = hit["collider"] as Node
 		while n != null and not n.has_method("take_damage"):
 			n = n.get_parent()
 		if n != null and n != self:
 			_deal(n, dmg)
+			# DOS throws the impact sparks on whatever the round strikes, an
+			# enemy's armour included; the port only did so on terrain.
+			Explosion.spawn(fx_parent, endpoint, 24.0, IMPACT_BANK_BULLET)
 		else:
 			Explosion.spawn(fx_parent, endpoint, 40.0, IMPACT_BANK_BULLET)
 		# The shotgun and the super uzi fire ammo with a blast of their own
@@ -2637,6 +2644,7 @@ func _build_viewmodel() -> void:
 	_viewmodel.visible = false
 	_vm_layer.add_child(_viewmodel)
 	_load_viewmodels()
+	_build_scope()
 
 ## Load the .CFA viewmodel frames for every weapon that names one
 ## (WEAPON*.CFA in MDMDIMGS.BSA).
@@ -2693,6 +2701,7 @@ func _process(delta: float) -> void:
 		and not rocket_view
 	if frames.is_empty():
 		_vm_firing = false
+		_update_scope()
 		return
 	if _vm_firing:
 		_vm_t += delta
@@ -2710,6 +2719,7 @@ func _process(delta: float) -> void:
 				break
 	_viewmodel.texture = frames[_vm_idx]
 	_layout_viewmodel()
+	_update_scope()
 
 ## --- the death view ---------------------------------------------------
 ## In a deathmatch the message said YOU DIED and the body went on
@@ -2882,6 +2892,79 @@ func _update_projection() -> void:
 func aim_screen_point() -> Vector2:
 	var vp: Vector2 = get_viewport().get_visible_rect().size
 	return Vector2(vp.x * 0.5, (vp.y - clampf(_hud_height(vp), 0.0, vp.y * 0.5)) * 0.5)
+
+## --- the laser rifle's scanner screen ------------------------------------
+## In DOS the little monitor on WEAPON07 shows the world ahead, zoomed in and
+## tinted green (grainy, but enough to pick out a robot at a distance); the
+## port drew only the fixed crosshair picture of the art there. A second
+## camera with a narrow field of view renders into a small SubViewport, which
+## is laid over the monitor's rectangle of the current frame. It only runs
+## while that weapon is in hand, and at half the frame rate.
+const SCOPE_CFA: String = "WEAPON07.CFA"
+const SCOPE_ZOOM: float = 4.0
+const SCOPE_FRAME: Vector2 = Vector2(150.0, 93.0)
+## The monitor's rectangle in the 150x93 art, per frame (the fire frames
+## are the odd ones: the gun kicks and grows), measured from the frames.
+const SCOPE_RECTS: Array = [Rect2(80.0, 18.0, 41.0, 26.0), Rect2(89.0, 20.0, 45.0, 29.0)]
+const SCOPE_SHADER: String = """
+shader_type canvas_item;
+void fragment() {
+	vec4 c = texture(TEXTURE, UV);
+	float l = dot(c.rgb, vec3(0.3, 0.59, 0.11));
+	l = floor(l * 8.0 + 0.5) / 8.0;
+	float scan = 0.86 + 0.14 * step(0.5, fract(UV.y * 21.0));
+	COLOR = vec4(vec3(0.42, 1.0, 0.30) * (0.22 + 0.95 * l) * scan, 1.0);
+}
+"""
+var _scope_vp: SubViewport = null
+var _scope_cam: Camera3D = null
+var _scope_rect: TextureRect = null
+var _scope_tick: int = 0
+
+func _build_scope() -> void:
+	_scope_vp = SubViewport.new()
+	_scope_vp.size = Vector2i(32, 21)
+	_scope_vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	_scope_vp.gui_disable_input = true
+	_scope_vp.msaa_3d = Viewport.MSAA_DISABLED
+	_scope_vp.world_3d = get_world_3d()
+	_scope_cam = Camera3D.new()
+	_scope_vp.add_child(_scope_cam)
+	add_child(_scope_vp)
+	_scope_rect = TextureRect.new()
+	_scope_rect.texture = _scope_vp.get_texture()
+	_scope_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_scope_rect.stretch_mode = TextureRect.STRETCH_SCALE
+	_scope_rect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_scope_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sh := Shader.new()
+	sh.code = SCOPE_SHADER
+	var mat := ShaderMaterial.new()
+	mat.shader = sh
+	_scope_rect.material = mat
+	_scope_rect.visible = false
+	_viewmodel.add_child(_scope_rect)
+
+func _update_scope() -> void:
+	if _scope_rect == null or _viewmodel == null:
+		return
+	var on: bool = _viewmodel.visible and _viewmodel.texture != null 		and String(_weapons[_weapon_idx].get("cfa", "")) == SCOPE_CFA 		and _cam != null
+	if not on:
+		_scope_rect.visible = false
+		_scope_vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
+		return
+	var ts: Vector2 = _viewmodel.texture.get_size()
+	var k := Vector2(ts.x / SCOPE_FRAME.x, ts.y / SCOPE_FRAME.y)
+	var rr: Rect2 = SCOPE_RECTS[_vm_idx % 2]
+	_scope_rect.position = rr.position * k
+	_scope_rect.size = rr.size * k
+	_scope_rect.visible = true
+	_scope_cam.global_transform = _cam.global_transform
+	_scope_cam.near = _cam.near
+	_scope_cam.far = _cam.far
+	_scope_cam.fov = rad_to_deg(2.0 * atan(tan(deg_to_rad(_cam.fov) * 0.5) / SCOPE_ZOOM))
+	_scope_tick += 1
+	_scope_vp.render_target_update_mode = SubViewport.UPDATE_ONCE 		if _scope_tick % 2 == 0 else SubViewport.UPDATE_DISABLED
 
 ## Pin the viewmodel sprite to the bottom-centre of the screen, scaled to
 ## the viewport like the DOS 320×200 screen.
