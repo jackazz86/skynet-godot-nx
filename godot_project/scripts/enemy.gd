@@ -815,6 +815,35 @@ func _move_data(delta: float, sense: Dictionary) -> void:
 		elif _ground_ok:
 			_ride_ground_plane()
 
+	if _flying and terrain_wld != null:
+		_clear_terrain(delta)
+
+## Radius around a flyer, and the room it keeps over the highest ground in
+## that ring. The altitude logic above reads the ground under the craft and
+## ahead of it only, so a hillside or canyon wall at its side swallowed it
+## ("the little octagonal flyers sink into the terrain"). The ground is
+## sampled every few ticks, but the floor it gives is enforced on EVERY tick:
+## correcting only on the sampling ticks fought the altitude logic's sink
+## and made the craft shake beside a slope.
+const FLYER_RING: float = 55.0
+const FLYER_CLEARANCE: float = 28.0
+const FLYER_CLEAR_RISE: float = 450.0
+var _clear_tick: int = 0
+var _clear_top: float = -INF
+
+func _clear_terrain(delta: float) -> void:
+	if _due(_clear_tick, 4, 3):
+		_clear_tick = _ticks
+		var top: float = _surface_at(global_position)
+		for i in 8:
+			var a: float = TAU * float(i) / 8.0
+			top = maxf(top, _surface_at(global_position
+				+ Vector3(cos(a) * FLYER_RING, 0.0, sin(a) * FLYER_RING)))
+		_clear_top = top
+	var need: float = _clear_top + FLYER_CLEARANCE - global_position.y
+	if need > 0.0:
+		global_position.y += minf(need, FLYER_CLEAR_RISE * delta)
+
 ## Between two snaps, keep the feet on the plane of the floor the last
 ## snap found (a slope, a ramp); the next snap corrects a crest or a lift.
 func _ride_ground_plane() -> void:
